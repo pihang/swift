@@ -89,6 +89,7 @@ class Runtime(BaseUI):
 
     @classmethod
     def do_build_ui(cls, base_tab: Type['BaseUI']):
+        # 直接最先显示
         with gr.Accordion(elem_id='runtime_tab', open=False, visible=True):
             with gr.Blocks():
                 with gr.Row():
@@ -99,7 +100,7 @@ class Runtime(BaseUI):
                     gr.Button(elem_id='stop_show_log', scale=1)
                     gr.Button(elem_id='kill_task', scale=1)
                 with gr.Row():
-                    gr.Textbox(elem_id='log', lines=6, visible=False)
+                    gr.Textbox(elem_id='log', lines=6, visible=False)   # 显示日志
 
                 concurrency_limit = {}
                 if version.parse(gr.__version__) >= version.parse('4.0.0'):
@@ -124,14 +125,16 @@ class Runtime(BaseUI):
 
     @classmethod
     def wait(cls, task):
+        '''打印日志在gr.Textbox'''
         if not task:
             return [None]
         _, args = cls.parse_info_from_cmdline(task)
         log_file = args['log_file']
+        logger.info(f'log_file: {log_file}')   # 日志文件位置信息
         offset = 0
         latest_data = ''
         lines = collections.deque(
-            maxlen=int(os.environ.get('MAX_LOG_LINES', 50)))
+            maxlen=int(os.environ.get('MAX_LOG_LINES', 50)))    # maxlen最大保存长度
         try:
             with open(log_file, 'r') as input:
                 input.seek(offset)
@@ -155,6 +158,8 @@ class Runtime(BaseUI):
                         latest_lines = latest_lines[:-1]
                     else:
                         latest_data = ''
+
+                    logger.info('\n'.join(latest_lines))  # 打印到终端的日志
                     lines.extend(latest_lines)
                     yield '\n'.join(lines)
         except IOError:

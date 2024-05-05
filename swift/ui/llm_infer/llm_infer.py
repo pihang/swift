@@ -334,7 +334,7 @@ class LLMInfer(BaseUI):
             key for key, value in cls.elements().items()
             if not isinstance(value, (Tab, Accordion))
         ]
-        for key, value in zip(keys, args):
+        for key, value in zip(keys, args):   # args就是网页的填入
             compare_value = infer_args.get(key)
             compare_value_arg = str(compare_value) if not isinstance(
                 compare_value, (list, dict)) else compare_value

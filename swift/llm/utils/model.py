@@ -25,7 +25,7 @@ from transformers.dynamic_module_utils import get_class_from_dynamic_module
 from transformers.models.auto.tokenization_auto import get_tokenizer_config
 from transformers.utils import strtobool
 from transformers.utils.versions import require_version
-from trl.import_utils import is_unsloth_available
+# from trl.import_utils import is_unsloth_available
 
 from swift import get_logger
 from swift.utils import (get_dist_setting, is_dist, is_local_master,
@@ -799,8 +799,8 @@ def get_model_tokenizer_from_repo(model_dir: str,
     model = None
     if load_model:
         if kwargs.get('use_unsloth', False):
-            assert is_unsloth_available(
-            ), 'please install unsloth if using `use_unsloth=True`'
+            # assert is_unsloth_available(
+            # ), 'please install unsloth if using `use_unsloth=True`'
             from unsloth import FastLanguageModel
             model, tokenizer = FastLanguageModel.from_pretrained(
                 model_name=model_dir,
@@ -2206,7 +2206,7 @@ def get_model_tokenizer_qwen1half(model_dir: str,
     hf_model_id='Qwen/Qwen1.5-7B-Chat-GPTQ-Int8')
 @register_model(
     ModelType.qwen1half_14b_chat_int4,
-    'qwen/Qwen1.5-14B-Chat-GPTQ-Int4',
+    '/home/ph/LLM/Qwen1.5/Qwen1.5-14B-Chat-GPTQ-Int4',
     LoRATM.qwen1half,
     TemplateType.qwen,
     requires=['auto_gptq>=0.5', 'transformers>=4.37'],
@@ -3114,7 +3114,7 @@ def get_model_tokenizer_qwen_base(*args, **kwargs):
     hf_model_id='jxy/Tongyi-Finance-14B-Chat')
 @register_model(
     ModelType.qwen_14b_chat,
-    'qwen/Qwen-14B-Chat',
+    '/home/ph/LLM/Qwen-14B-main/Qwen-14B-Chat',
     LoRATM.qwen,
     TemplateType.qwen,
     support_flash_attn=True,

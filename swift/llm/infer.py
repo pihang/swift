@@ -125,7 +125,7 @@ def prepare_model_template(
         device_map: Optional[str] = None,
         verbose: bool = True,
         automodel_class=None) -> Tuple[PreTrainedModel, Template]:
-
+    logger.info(f'args: {args}')   # 加载
     model_kwargs = {}
     if is_torch_npu_available():
         logger.info(f'device_count: {torch.npu.device_count()}')
@@ -480,5 +480,5 @@ def llm_infer(args: InferArguments) -> None:
     return {'result': result}
 
 
-infer_main = get_main(InferArguments, llm_infer)
+infer_main = get_main(InferArguments, llm_infer)    # # InferArguments参数实例，llm_infer是回调执行逻辑的函数
 merge_lora_main = get_main(InferArguments, merge_lora)
