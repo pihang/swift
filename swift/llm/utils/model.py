@@ -3185,7 +3185,7 @@ def _qwen_vl_audio_decode(self,
 
 @register_model(
     ModelType.qwen_vl_chat,
-    'qwen/Qwen-VL-Chat',
+    '/home/ph/LLM2/VL/Qwen-VL-Chat',
     LoRATM.qwen,
     TemplateType.qwen,
     support_flash_attn=True,

@@ -147,7 +147,7 @@ def llm_sft(args: SftArguments) -> Dict[str, Union[str, Any]]:
         if train_dataset.shape[0] > train_dataset_sample:
             logger.info(f'train_dataset_sample: {train_dataset_sample}')
             train_idxs = random_state.permutation(train_dataset_sample)
-            train_dataset = train_dataset.select(train_idxs)
+            train_dataset = train_dataset.select(train_idxs)    # 随机选1000个训练
         if val_dataset_sample is None:
             val_dataset_sample = max(
                 int(train_dataset_sample * args.dataset_test_ratio), 1)
