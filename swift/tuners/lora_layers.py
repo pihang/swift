@@ -24,7 +24,6 @@ from peft.tuners.lora import LoraModel as _LoraModel
 from peft.tuners.lora.tp_layer import LoraParallelLinear as _LoraParallelLinear
 from peft.tuners.tuners_utils import BaseTunerLayer
 from peft.utils import _get_submodules, get_auto_gptq_quant_linear, get_quantization_config
-from peft.utils.other import transpose
 from transformers import Conv1D
 
 from swift import LoraConfig, get_logger
@@ -35,12 +34,19 @@ dispatchers = []
 
 
 def is_auto_awq_available():
-    return importlib.util.find_spec('awq') is not None and importlib.util.find_spec('peft.tuners.lora.awq') is not None
+    return importlib.util.find_spec('awq') is not None
 
 
 def is_aqlm_available():
-    return importlib.util.find_spec('aqlm') is not None and importlib.util.find_spec(
-        'peft.tuners.lora.aqlm') is not None
+    return importlib.util.find_spec('aqlm') is not None
+
+
+def is_eetq_available():
+    return importlib.util.find_spec('eetq') is not None
+
+
+def is_hqq_available():
+    return importlib.util.find_spec('hqq') is not None
 
 
 def is_auto_gptq_available():
@@ -358,6 +364,76 @@ if is_auto_gptq_available():
 
     dispatchers.append(dispatch_gptq)
 
+if is_eetq_available():
+    from peft.tuners.lora.eetq import EetqLoraLinear as _EetqLoraLinear
+    from eetq import EetqLinear
+
+    class EetqLoraLinear(LoRAActivationMixin, _EetqLoraLinear):
+
+        def __init__(
+            self,
+            *args,
+            module_key: str,
+            **kwargs,
+        ):
+            super(EetqLoraLinear, self).__init__(module_key)
+            self.set_activation(args[1], True)
+            super(ActivationMixin, self).__init__(*args, **kwargs)
+
+    def dispatch_eetq(
+        target: torch.nn.Module,
+        adapter_name: str,
+        **kwargs: Any,
+    ) -> Optional[torch.nn.Module]:
+        new_module = None
+
+        if isinstance(target, BaseTunerLayer):
+            target_base_layer = target.get_base_layer()
+        else:
+            target_base_layer = target
+
+        if is_eetq_available() and isinstance(target_base_layer, EetqLinear):
+            new_module = EetqLoraLinear(target, adapter_name, **kwargs)
+            target.weight = target_base_layer.weight
+
+            if hasattr(target, 'bias'):
+                target.bias = target_base_layer.bias
+
+        return new_module
+
+    dispatchers.append(dispatch_eetq)
+
+if is_hqq_available():
+    from peft.tuners.lora.hqq import HqqLoraLinear as _HqqLoraLinear
+    from hqq.core.quantize import HQQLinear
+
+    class HqqLoraLinear(LoRAActivationMixin, _HqqLoraLinear):
+
+        def __init__(
+            self,
+            *args,
+            module_key: str,
+            **kwargs,
+        ):
+            super(HqqLoraLinear, self).__init__(module_key)
+            self.set_activation(args[1], True)
+            super(ActivationMixin, self).__init__(*args, **kwargs)
+
+    def dispatch_hqq(target: torch.nn.Module, adapter_name: str, **kwargs):
+        new_module = None
+
+        if isinstance(target, BaseTunerLayer):
+            target_base_layer = target.get_base_layer()
+        else:
+            target_base_layer = target
+
+        if is_hqq_available() and isinstance(target_base_layer, HQQLinear):
+            new_module = HqqLoraLinear(target_base_layer, adapter_name, **kwargs)
+
+        return new_module
+
+    dispatchers.append(dispatch_hqq)
+
 
 def dispatch_megatron(
     target: torch.nn.Module,
@@ -375,12 +451,12 @@ def dispatch_megatron(
 
     if lora_config.megatron_config:
         megatron_core = importlib.import_module(lora_config.megatron_core)
-        linears = (megatron_core.tensor_parallel.ColumnParallelLinear, megatron_core.tensor_parallel.RowParallelLinear)
     else:
         megatron_core = None
-        linears = None
 
-    if megatron_core and isinstance(target_base_layer, linears):
+    if megatron_core and isinstance(
+            target_base_layer,
+        (megatron_core.tensor_parallel.ColumnParallelLinear, megatron_core.tensor_parallel.RowParallelLinear)):  # noqa
         megatron_kwargs = kwargs.copy()
         megatron_config = lora_config.megatron_config
         if isinstance(megatron_config, dict):
@@ -395,8 +471,8 @@ def dispatch_megatron(
         new_module = LoraParallelLinear(
             base_layer=target,
             adapter_name=adapter_name,
-            backend=megatron_core.tensor_parallel,
             module_key=module_key,
+            backend=megatron_core.tensor_parallel,
             **megatron_kwargs)
 
     return new_module
@@ -469,70 +545,6 @@ class Linear(LoRAActivationMixin, _Linear):
         self.set_activation(args[1], True)
         super(ActivationMixin, self).__init__(*args, **kwargs)
 
-        def device_hook(module, args):
-            for active_adapter in self.active_adapters:
-                if active_adapter in self.lora_A:
-                    self.lora_A[active_adapter].to(args[0].device)
-                    self.lora_B[active_adapter].to(args[0].device)
-
-        self.register_forward_pre_hook(device_hook)
-
-    def update_layer(self,
-                     adapter_name,
-                     r,
-                     lora_alpha,
-                     lora_dropout,
-                     init_lora_weights,
-                     use_rslora,
-                     use_dora: bool = False):
-        # This code works for linear layers, override for other layer types
-        if r <= 0:
-            raise ValueError(f'`r` should be a positive integer value but the value passed is {r}')
-
-        self.r[adapter_name] = r
-        self.lora_alpha[adapter_name] = lora_alpha
-        if lora_dropout > 0.0:
-            lora_dropout_layer = nn.Dropout(p=lora_dropout)
-        else:
-            lora_dropout_layer = nn.Identity()
-
-        self.lora_dropout.update(nn.ModuleDict({adapter_name: lora_dropout_layer}))
-        # Actual trainable parameters
-        self.lora_A[adapter_name] = nn.Linear(self.in_features, r, bias=False)
-        self.lora_B[adapter_name] = nn.Linear(r, self.out_features, bias=False)
-        if use_rslora:
-            self.scaling[adapter_name] = lora_alpha / math.sqrt(r)
-        else:
-            self.scaling[adapter_name] = lora_alpha / r
-
-        if init_lora_weights == 'loftq':
-            self.loftq_init(adapter_name)
-        elif init_lora_weights:
-            self.reset_lora_parameters(adapter_name, init_lora_weights)
-
-        # check weight and qweight (for GPTQ)
-        for weight_name in ('weight', 'qweight'):
-            weight = getattr(self.get_base_layer(), weight_name, None)
-            if weight is not None:
-                if weight.device != torch.device('meta'):
-                    # the layer is already completely initialized, this is an update
-                    if weight.dtype.is_floating_point or weight.dtype.is_complex:
-                        self.to(weight.device, dtype=weight.dtype)
-                    else:
-                        self.to(weight.device)
-                    break
-                elif weight.dtype.is_floating_point or weight.dtype.is_complex:
-                    self.to(dtype=weight.dtype)
-                    break
-
-        if use_dora:
-            self.dora_init(adapter_name)
-            self.use_dora[adapter_name] = True
-        else:
-            self.use_dora[adapter_name] = False
-
-        self.set_adapter(self.active_adapters)
-
 
 class Conv2d(LoRAActivationMixin, _Conv2d):
 
@@ -601,14 +613,23 @@ class LoraModel(_LoraModel):
 
         peft_config = self._prepare_adapter_config(peft_config, model_config)
 
-        if version.parse(peft.__version__) > version.parse('0.8.2'):
-            from peft.tuners.tuners_utils import _maybe_include_all_linear_layers
-            # update peft_config.target_modules if required
-            peft_config = _maybe_include_all_linear_layers(peft_config, model)
-        if version.parse(peft.__version__) >= version.parse('0.10.0'):
-            self._prepare_model(peft_config, model)
+        from peft.tuners.tuners_utils import _maybe_include_all_linear_layers
+        try:
+            from peft.utils.constants import DUMMY_TARGET_MODULES
+        except ImportError:  # compat with peft==0.11.*
+            DUMMY_TARGET_MODULES = 'dummy-target-modules'
+        if getattr(peft_config, 'target_modules', None) == DUMMY_TARGET_MODULES:
+            # dummy adapter, we allow not matching any module
+            key_list = []
+            is_target_modules_in_base_model = True
+        # update peft_config.target_modules if required
+        peft_config = _maybe_include_all_linear_layers(peft_config, model)
+        self._prepare_model(peft_config, model)
 
         for key in key_list:
+            if '_part_' in key:
+                # Avoid lora conflict with part tuner
+                continue
             # Check for modules_to_save in case
             if _check_for_modules_to_save and any(
                     key.endswith(f'{module_to_save}') for module_to_save in peft_config.modules_to_save):
@@ -632,7 +653,8 @@ class LoraModel(_LoraModel):
             parent, target, target_name = _get_submodules(model, key)
             self._create_and_replace(peft_config, adapter_name, target, target_name, parent, current_key=key)
 
-        if not is_target_modules_in_base_model:
+        # Handle X-LoRA case.
+        if not is_target_modules_in_base_model and hasattr(peft_config, 'target_modules'):
             raise ValueError(f'Target modules {peft_config.target_modules} not found in the base model. '
                              f'Please check the target modules and try again.')
 
@@ -706,6 +728,9 @@ class LoraModel(_LoraModel):
             'loaded_in_8bit': getattr(self.model, 'is_loaded_in_8bit', False),
             'loaded_in_4bit': getattr(self.model, 'is_loaded_in_4bit', False),
         }
+        # compat with peft==0.11.*
+        if hasattr(lora_config, 'runtime_config'):
+            kwargs['ephemeral_gpu_offload'] = lora_config.runtime_config.ephemeral_gpu_offload
 
         quant_methods = ['gptq', 'aqlm', 'awq']
         for quant_method in quant_methods:
@@ -730,10 +755,12 @@ class LoraModel(_LoraModel):
                 use_dora=lora_config.use_dora,
             )
             self._convert_dtype(target, lora_config.lora_dtype)
+            ActivationMixin.mark_all_sub_modules_as_plugin(target)
         else:
             new_module = self._create_new_module(lora_config, adapter_name, target, current_key=current_key, **kwargs)
             if new_module is not None:
-                if adapter_name != self.active_adapter:
+                ActivationMixin.mark_all_sub_modules_as_plugin(new_module)
+                if adapter_name not in self.active_adapters:
                     # adding an additional adapter: it is not automatically trainable
                     new_module.requires_grad_(False)
                 self._replace_module(parent, target_name, new_module, target)
@@ -749,7 +776,10 @@ class LoraModel(_LoraModel):
             child = child.base_layer
 
         if not hasattr(new_module, 'base_layer'):
-            new_module.weight = child.weight
+            if hasattr(new_module, 'W_q'):  # HQQ
+                new_module.W_q = child.W_q
+            else:
+                new_module.weight = child.weight
             if hasattr(child, 'bias'):
                 new_module.bias = child.bias
 
@@ -763,9 +793,10 @@ class LoraModel(_LoraModel):
         # dispatch to correct device
         for name, module in new_module.named_modules():
             if (self.prefix in name) or ('ranknum' in name):
-                weight = child.qweight if hasattr(child, 'qweight') else child.weight
-                if weight.device != torch.device('meta'):
-                    module.to(weight.device)
+                weight = (
+                    child.qweight if hasattr(child, 'qweight') else child.W_q if hasattr(child, 'W_q') else
+                    child.weight if hasattr(child, 'weight') else next(child.parameters()))
+                module.to(weight.device)
 
     @staticmethod
     def _create_new_module(lora_config, adapter_name, target, **kwargs):

@@ -1,14 +1,14 @@
 # Copyright (c) Alibaba, Inc. and its affiliates.
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Literal, Optional
+from typing import Optional
 
 import torch
 from torch import nn
 
 from swift.utils.logger import get_logger
-from .module_mapping import MODEL_KEYS_MAPPING, ModelKeys
-from .utils import SwiftAdapter, SwiftConfig, SwiftOutput
+from swift.utils.module_mapping import MODEL_KEYS_MAPPING, ModelKeys
+from .utils import ActivationMixin, SwiftAdapter, SwiftConfig, SwiftOutput
 
 logger = get_logger()
 
@@ -68,6 +68,7 @@ class LLaMAPro(SwiftAdapter):
             new_module_list.append(module)
             if (idx + 1) % num_stride == 0:
                 new_module = deepcopy(module)
+                ActivationMixin.mark_all_sub_modules_as_plugin(new_module)
                 new_module_list.append(new_module)
                 new_module_idx.append(idx + 1 + len(new_module_idx))
 
@@ -118,22 +119,36 @@ class LLaMAPro(SwiftAdapter):
         model_key_mapping = LLaMAPro._get_model_key_mapping(model_type, config)
         attention = model_key_mapping.attention
         attention = attention.split('{}.')[1]
+        if model_type == 'phi3-small':
+            raise ValueError('phi3-small does not support llamapro currently')
         if model_type in ('llama', 'mistral', 'qwen2', 'yi', 'gemma', 'deepseek', 'openbuddy', 'xverse', 'orion',
-                          'bluelm', 'ziya', 'skywork'):
+                          'bluelm', 'ziya', 'skywork', 'deepseek-v2', 'minicpm', 'phi3', 'internlm2'):
             for idx, module in enumerate(module_list):
                 getattr(module, attention).layer_idx = idx
-        elif model_type in ('chatglm', ):
+        elif model_type in ('chatglm', 'glm4'):
             for idx, module in enumerate(module_list):
                 getattr(module, attention).layer_number = idx
         elif model_type in ('phi2', ):
             for idx, module in enumerate(module_list):
                 getattr(module, attention).block_idx = idx
+        else:
+            for idx, module in enumerate(module_list):
+                attrs = [
+                    attr for attr in dir(getattr(module_list[0], attention))
+                    if attr in ('layer_idx', 'layer_number', 'block_idx')
+                ]
+                assert len(attrs) <= 1
+                if attrs:
+                    setattr(getattr(module, attention), attrs[0], idx)
+                else:
+                    logger.warn(f'model_type: {model_type} seems has no layer_idx, if you encountered anything wrong,'
+                                f'please give us a feedback.')
 
     @staticmethod
     def _update_module_weight(config: LLaMAProConfig, module_list, new_module_idx):
         model_key_mapping = LLaMAPro._get_model_key_mapping(config.model_type, config)
         o_proj = model_key_mapping.o_proj.split('{}.')[1]
-        down_proj = model_key_mapping.o_proj.split('{}.')[1]
+        down_proj = model_key_mapping.down_proj.split('{}.')[1]
 
         for idx, module in enumerate(module_list):
             if idx not in new_module_idx:
@@ -142,10 +157,10 @@ class LLaMAPro(SwiftAdapter):
             _down_proj: nn.Linear = module.get_submodule(down_proj)
             _o_proj.weight.data = torch.zeros_like(_o_proj.weight.data)
             _down_proj.weight.data = torch.zeros_like(_down_proj.weight.data)
-            if hasattr(_o_proj, 'bias') and _o_proj.bias:
-                _o_proj.bias = torch.zeros_like(_o_proj.bias)
-            if hasattr(_down_proj, 'bias') and _down_proj.bias:
-                _down_proj.bias = torch.zeros_like(_down_proj.bias)
+            if hasattr(_o_proj, 'bias') and _o_proj.bias is not None:
+                _o_proj.bias.data = torch.zeros_like(_o_proj.bias)
+            if hasattr(_down_proj, 'bias') and _down_proj.bias is not None:
+                _down_proj.bias.data = torch.zeros_like(_down_proj.bias)
 
     @staticmethod
     def _set_module_list(config, module: nn.Module, module_list: nn.ModuleList):

@@ -2,16 +2,15 @@
 # Part of the implementation is borrowed from huggingface/transformers.
 import heapq
 import importlib.util
-import logging
 import os
 import shutil
+import time
 from copy import deepcopy
 from functools import partial, wraps
 from queue import Empty, Queue
 from tempfile import TemporaryDirectory
 from threading import Thread
-from typing import (Any, Callable, Dict, Iterator, List, Mapping, Optional,
-                    Sequence, Tuple, Union)
+from typing import Any, Callable, Dict, Iterator, List, Mapping, Optional, Sequence, Set, Tuple, Union
 
 import accelerate
 import multiprocess
@@ -22,11 +21,10 @@ import torch.distributed as dist
 import transformers
 from datasets import Dataset as HfDataset
 from modelscope.utils.config_ds import MS_CACHE_HOME
-from modelscope.utils.logger import get_logger as get_ms_logger
 from torch import device as Device
 from torch.nn import Linear, Module
 from torch.nn.parallel import DistributedDataParallel as DDP
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, IterableDataset
 from tqdm.auto import tqdm
 from transformers import (GenerationConfig, PretrainedConfig, PreTrainedModel,
                           PreTrainedTokenizerBase, StoppingCriteriaList,
@@ -35,25 +33,12 @@ from transformers.generation.streamers import BaseStreamer
 from transformers.utils import is_torch_npu_available, strtobool
 
 from swift.hub import ModelScopeConfig
-from swift.tuners.module_mapping import MODEL_KEYS_MAPPING
-from swift.utils import (get_dist_setting, get_logger, is_ddp_plus_mp, is_dist,
-                         is_local_master, safe_ddp_context, stat_array,
-                         upper_bound, use_torchacc)
+from swift.utils import (get_dist_setting, get_logger, is_ddp_plus_mp, safe_ddp_context, stat_array, upper_bound,
+                         use_torchacc)
+from swift.utils.module_mapping import MODEL_KEYS_MAPPING
 from .template import History, StopWords, StopWordsCriteria, Template
 
 logger = get_logger()
-ms_logger = get_ms_logger()
-
-logger_format = logging.Formatter('[%(levelname)s:%(name)s] %(message)s')
-
-logger.handlers[0].setFormatter(logger_format)
-ms_logger.handlers[0].setFormatter(logger_format)
-if is_local_master():
-    logger.setLevel(logging.INFO)
-    ms_logger.setLevel(logging.INFO)
-else:
-    logger.setLevel(logging.ERROR)
-    ms_logger.setLevel(logging.ERROR)
 
 os.environ['TOKENIZERS_PARALLELISM'] = 'true'
 
@@ -97,9 +82,6 @@ if not use_hf:
     def _msdataset_ddp_load(*args, **kwargs):
         with safe_ddp_context():
             dataset = _old_msdataset_load(*args, **kwargs)
-
-        if is_dist():  # sync
-            dist.barrier()
         return dataset
 
     # monkey patching
@@ -143,6 +125,18 @@ def _sync_max_memory(
     return new_max_memory
 
 
+def fetch_one(element: Union[Tuple, List, Set, Dict, Any]) -> Any:
+    if isinstance(element, (tuple, set, list)):
+        for ele in element:
+            out = fetch_one(ele)
+            if out:
+                return out
+    elif isinstance(element, dict):
+        return fetch_one(list(element.values()))
+    else:
+        return element
+
+
 class LLMDataset(Dataset):
 
     def __init__(self, data: List[Dict[str, Any]]) -> None:
@@ -163,6 +157,90 @@ class LLMDataset(Dataset):
 
     def __len__(self) -> int:
         return len(self.data)
+
+
+# Code borrowed from trl
+class ConstantLengthDataset(IterableDataset):
+
+    def __init__(
+        self,
+        template: 'Template',
+        dataset,
+        seq_length=1024,
+        num_of_sequences=1024,
+        chars_per_token=3.6,
+        append_concat_token=True,
+        add_special_tokens=True,
+    ):
+        self.template = template
+
+        self.concat_token_id = self.template.tokenizer.eos_token_id
+        self.dataset = dataset
+        self.seq_length = seq_length
+        self.max_buffer_size = seq_length * chars_per_token * num_of_sequences
+        self.append_concat_token = append_concat_token
+        self.add_special_tokens = add_special_tokens
+
+    @staticmethod
+    def get_packed_dataset(template: 'Template',
+                           dataset,
+                           seq_length=1024,
+                           num_of_sequences=2048,
+                           chars_per_token=3.6,
+                           append_concat_token=True,
+                           add_special_tokens=True,
+                           lazy_tokenize=False):
+        constant_length_iterator = ConstantLengthDataset(template, dataset, seq_length, num_of_sequences,
+                                                         chars_per_token, append_concat_token, add_special_tokens)
+
+        if lazy_tokenize:
+            return constant_length_iterator
+
+        dataset_list = []
+        for item in constant_length_iterator:
+            dataset_list.append(item)
+        return HfDataset.from_list(dataset_list)
+
+    def __len__(self):
+        return len(self.dataset)
+
+    def calculate_matched_group(self, sequences: Dict[str, List[int]]):
+        # https://arxiv.org/pdf/2404.10830
+        import binpacking
+        binpacked = binpacking.to_constant_volume(sequences, self.seq_length, weight_pos=1)
+        packed_sequence = []
+        for sequence in binpacked:
+            packed = {}
+            for key in sequence[0][0].keys():
+                packed[key] = np.concatenate([s[0][key] for s in sequence])
+            packed_sequence.append(packed)
+        return packed_sequence
+
+    def __iter__(self):
+        iterator = iter(self.dataset)
+        more_examples = True
+        while more_examples:
+            buffer, buffer_len = [], 0
+            while True:
+                if buffer_len >= self.max_buffer_size:
+                    break
+                try:
+                    example = next(iterator)
+                    lens = sum([len(value) if value else 0 for value in example.values()])
+                    buffer.append(next(iterator))
+                    buffer_len += lens
+                except StopIteration:
+                    more_examples = False
+                    break
+
+            sequences = []
+            for example in buffer:
+                input, _ = self.template.encode(example)
+                sequences.append((input, len(input['input_ids'])))
+
+            packed_sequences = self.calculate_matched_group(sequences)
+            for sequence in packed_sequences:
+                yield sequence
 
 
 class LazyLLMDataset(Dataset):
@@ -188,7 +266,11 @@ class LazyLLMDataset(Dataset):
         idx = np.random.permutation(len(self))[:self.try_fetch_time - 1]
         for i in [first_idx] + idx.tolist():
             data = self.dataset[i]
-            res = self.template.encode(data)
+            try:
+                res = self.template.encode(data)
+            except (OSError, AssertionError) as e:
+                logger.error('Error occurs in lazy tokenize:', e)
+                continue
             if len(res[0]) > 0:
                 return res
 
@@ -196,7 +278,7 @@ class LazyLLMDataset(Dataset):
         return len(self.dataset)
 
 
-MapFunc = Callable[[Dict[str, Any]], Dict[str, Any]]
+MapFunc = Callable[[Dict[str, Any]], Tuple[Dict[str, Any], Dict[str, Any]]]
 
 
 def _single_map(d: Dict[str, Any],
@@ -279,26 +361,35 @@ def stat_dataset(llm_dataset: Dataset) -> str:
     return stat_str
 
 
-def safe_tokenizer_decode(tokenizer: PreTrainedTokenizerBase,
-                          input_ids: List[int], **tokenizer_kwargs) -> str:
+def safe_tokenizer_decode(tokenizer: PreTrainedTokenizerBase, input_ids: List[int], **tokenizer_kwargs) -> str:
+
+    def _is_special(token: int) -> bool:
+        if token < 0:
+            return True
+        if hasattr(tokenizer, 'placeholder_tokens'):
+            return token in tokenizer.placeholder_tokens_id
+        return False
+
+    if isinstance(input_ids, torch.Tensor):
+        input_ids = input_ids.tolist()
     if len(input_ids) == 0:
         return ''
     result_str = ''
     for i in range(len(input_ids)):
         if i == 0:
-            if input_ids[i] < 0:
+            if _is_special(input_ids[i]):
                 s = 0
             else:
                 e = 0
             continue
-        if input_ids[i] < 0 and input_ids[i - 1] >= 0:
+        if _is_special(input_ids[i]) and not _is_special(input_ids[i - 1]):
             s = i
             result_str += tokenizer.decode(input_ids[e:s], **tokenizer_kwargs)
-        if input_ids[i] >= 0 and input_ids[i - 1] < 0:
+        if not _is_special(input_ids[i]) and _is_special(input_ids[i - 1]):
             e = i
-            result_str += f'[-100 * {e - s}]'
-    if input_ids[-1] < 0:
-        result_str += f'[-100 * {len(input_ids) - s}]'
+            result_str += f'[{input_ids[i - 1]} * {e - s}]'
+    if _is_special(input_ids[-1]):
+        result_str += f'[{input_ids[i - 1]} * {len(input_ids) - s}]'
     else:
         result_str += tokenizer.decode(input_ids[e:], **tokenizer_kwargs)
     return result_str
@@ -333,6 +424,7 @@ def _find_layers(model: Module, module_cls: type) -> List[str]:
 
 
 def find_ln(model: Module) -> List[str]:
+    # find_layer_norm
     module_names = set()
     for name, module in model.named_modules():
         module_cls_name = module.__class__.__name__.lower()
@@ -347,20 +439,39 @@ def find_embedding(model: Module) -> List[str]:
     return _find_layers(model, torch.nn.Embedding)
 
 
-def find_all_linears(model: Module, quantization_bit: int,
-                     model_type: str) -> List[str]:
+def is_quant_model(model_type: Optional[str] = None, model=None) -> bool:
+    # Check if the model is gptq, awq, aqlm model. Do not check for other quantization situations such as bnb.
+    if model_type is not None:
+        for k in ['int4', 'int8', 'awq', 'aqlm']:
+            if k in model_type:
+                return True
+    if model is not None:
+        for k in ['gptq', 'awq', 'aqlm']:
+            if getattr(model, f'is_{k}', None):
+                return True
+    return False
+
+
+def find_all_linears(model: Module, quantization_bit: int, model_type: str, quant_method: str) -> List[str]:
     """ref: https://github.com/artidoro/qlora"""
     head_module_name = 'lm_head'
     if model_type in MODEL_KEYS_MAPPING:
         output = MODEL_KEYS_MAPPING[model_type].output
         idx = output.rfind('.')
         head_module_name = output[idx + 1:]
-    if quantization_bit == 4:
-        from bitsandbytes.nn import Linear4bit
-        linear_cls = [Linear4bit]
-    elif quantization_bit == 8:
-        from bitsandbytes.nn import Linear8bitLt
-        linear_cls = [Linear8bitLt]
+    if quant_method == 'bnb':
+        if quantization_bit == 4:
+            from bitsandbytes.nn import Linear4bit
+            linear_cls = [Linear4bit]
+        elif quantization_bit == 8:
+            from bitsandbytes.nn import Linear8bitLt
+            linear_cls = [Linear8bitLt]
+    elif quant_method == 'hqq':
+        from hqq.core.quantize import HQQLinear
+        linear_cls = [HQQLinear]
+    elif quant_method == 'eetq':
+        from eetq import EetqLinear
+        linear_cls = [EetqLinear]
     else:
         linear_cls = [Linear]
     if 'int4' in model_type or 'int8' in model_type:
@@ -399,7 +510,7 @@ def find_all_linears(model: Module, quantization_bit: int,
     return list(target_module_names)
 
 
-def sort_by_max_length(llm_dataset: LLMDataset, num_dataset: int) -> HfDataset:
+def sort_by_max_length(llm_dataset: LLMDataset, num_dataset: int) -> LLMDataset:
     logger.info('sort by max length...')
     dataset_len = [len(d['input_ids']) for d in llm_dataset]
     idx = heapq.nlargest(
@@ -437,8 +548,7 @@ class TokenListIteratorStreamer(BaseStreamer):
         if value.ndim > 1:
             value = value[0]
         value = value.tolist()
-        for v in value:
-            self.token_queue.put(v)
+        self.token_queue.put(value)
 
     def end(self) -> None:
         self.token_queue.put(self.stop_signal)
@@ -446,7 +556,7 @@ class TokenListIteratorStreamer(BaseStreamer):
     def __iter__(self):
         return self
 
-    def __next__(self):
+    def __next__(self) -> List[int]:
         value = self.token_queue.get(timeout=self.timeout)
         if value == self.stop_signal:
             raise StopIteration()
@@ -454,46 +564,39 @@ class TokenListIteratorStreamer(BaseStreamer):
             return value
 
 
-def inference_stream(model: PreTrainedModel,
-                     template: Template,
-                     query: str,
-                     history: Optional[History] = None,
-                     system: Optional[str] = None,
-                     *,
-                     generation_config: Optional[GenerationConfig] = None,
-                     stop_words: Optional[StopWords] = None,
-                     generation_info: Optional[Dict[str, int]] = None,
-                     **kwargs) -> Iterator[Tuple[str, History]]:
-    """
-    generation_config: Priority: generation_config > model.generation_config.
-    """
+def _prepare_inputs(model: PreTrainedModel,
+                    template: Template,
+                    query: str,
+                    history: History,
+                    system: Optional[str] = None,
+                    images: Optional[List[str]] = None,
+                    *,
+                    generation_config: GenerationConfig,
+                    generation_info: Dict[str, Any],
+                    stop_words: Optional[StopWords] = None,
+                    adapter_names: Optional[List[str]] = None,
+                    **kwargs) -> Tuple[Dict[str, Any], Dict[str, Any], int, Dict[str, Any]]:
     if stop_words is None:
         stop_words = []
-    if history is None:
-        history = []
-    else:
-        history = deepcopy(history)
-
-    # agent support
-    is_observation = history[-1][-1].endswith(
-        'Observation:') if history and history[-1][-1] else False
-    if is_observation:
-        history[-1][-1] = history[-1][-1] + query
-        act_length = len(history[-1][-1])
-        query = None
 
     example = {
         'query': query,
         'history': history,
         'system': system,
-        'images': kwargs.pop('images', None)  # for vl. str.
+        'images': images or [],  # for vl. str.
+        'audios': kwargs.pop('audios', None) or [],
+        'videos': kwargs.pop('videos', None) or [],
+        'tools': kwargs.pop('tools', None),
+        'objects': kwargs.pop('objects', None),
     }
     template.model = model
     inputs, tokenizer_kwargs = template.encode(example)
-    if len(inputs) == 0:
-        raise ValueError(
-            'input_ids exceeds `max_length`. Please increase the value of `max_length`.'
-        )
+
+    truncation_strategy = kwargs.pop('truncation_strategy', 'delete')
+    if len(inputs) == 0 and truncation_strategy == 'delete':
+        # input_ids exceeds `max_length`. Please increase the value of `max_length`.
+        return {}, tokenizer_kwargs, 0, example
+
     inputs.pop('labels', None)
     tokenizer = template.tokenizer
     device = next(model.parameters()).device
@@ -506,16 +609,10 @@ def inference_stream(model: PreTrainedModel,
         inputs['inputs_embeds'] = inputs_embeds
         token_len = inputs_embeds.shape[1]
 
-    inputs['attention_mask'] = torch.ones(token_len)[None]
+    inputs['attention_mask'] = torch.ones(token_len, dtype=torch.int64)[None]
     if 'token_type_ids' in inputs:
         inputs['token_type_ids'] = torch.tensor(inputs['token_type_ids'])[None]
     model.eval()
-    if generation_config is None:
-        generation_config = getattr(model, 'generation_config', None)
-    generation_config = deepcopy(generation_config)
-    if generation_config.num_beams != 1:
-        error_msg = 'Streaming generation does not support beam search.'
-        raise ValueError(error_msg)
 
     if tokenizer.eos_token_id is not None:
         generation_config.eos_token_id = tokenizer.eos_token_id
@@ -529,24 +626,77 @@ def inference_stream(model: PreTrainedModel,
         if max_length and token_len + generation_config.max_new_tokens > max_length:
             generation_config.max_new_tokens = max_length - token_len
             if generation_config.max_new_tokens <= 0:
-                raise AssertionError('Current sentence length exceeds'
-                                     f'the model max_length: {max_length}')
+                raise AssertionError(f'Current sentence length exceeds the model max_length: {max_length}')
     if template.suffix[-1] not in stop_words:
         stop_words.append(template.suffix[-1])
-    stopping_criteria = StoppingCriteriaList(
-        [StopWordsCriteria(tokenizer, stop_words, **tokenizer_kwargs)])
     inputs = to_device(inputs, device)
-    if generation_info is not None:
-        generation_info['num_prompt_tokens'] = token_len
     if 'inputs_embeds' in inputs:
         inputs.pop('input_ids', None)
+    if adapter_names is not None:
+        inputs['adapter_names'] = adapter_names
+
+    stopping_criteria = StoppingCriteriaList([StopWordsCriteria(tokenizer, stop_words, **tokenizer_kwargs)])
+    inputs['stopping_criteria'] = stopping_criteria
+    generation_info['num_prompt_tokens'] = token_len
+    return inputs, tokenizer_kwargs, token_len, example
+
+
+@torch.inference_mode()
+def inference_stream(model: PreTrainedModel,
+                     template: Template,
+                     query: str,
+                     history: Optional[History] = None,
+                     system: Optional[str] = None,
+                     images: Optional[List[str]] = None,
+                     *,
+                     generation_config: Optional[GenerationConfig] = None,
+                     stop_words: Optional[StopWords] = None,
+                     generation_info: Optional[Dict[str, Any]] = None,
+                     adapter_names: Optional[List[str]] = None,
+                     **kwargs) -> Iterator[Tuple[str, History]]:
+    """
+    generation_config: Priority: generation_config > model.generation_config.
+    """
+    start_runtime = time.perf_counter()
+    if history is None:
+        history = []
+    else:
+        history = deepcopy(history)
+    if generation_config is None:
+        generation_config = getattr(model, 'generation_config')
+    generation_config = deepcopy(generation_config)
+    if generation_info is None:
+        generation_info = {}
+    else:
+        generation_info.clear()
+    inputs, tokenizer_kwargs, token_len, example = _prepare_inputs(
+        model,
+        template,
+        query,
+        history,
+        system,
+        images,
+        generation_config=generation_config,
+        generation_info=generation_info,
+        stop_words=stop_words,
+        adapter_names=adapter_names,
+        **kwargs)
+    if len(inputs) == 0:
+        return '', history
+
+    # agent support
+    is_observation = history[-1][-1].endswith('Observation:') if history and history[-1][-1] else False
+    if is_observation:
+        history[-1][-1] = history[-1][-1] + query
+        act_length = len(history[-1][-1])
+        query = None
+
+    if generation_config.num_beams != 1:
+        error_msg = 'Streaming generation does not support beam search.'
+        raise ValueError(error_msg)
+
     streamer = TokenListIteratorStreamer()
-    generation_kwargs = {
-        'streamer': streamer,
-        'generation_config': generation_config,
-        'stopping_criteria': stopping_criteria,
-        **inputs
-    }
+    generation_kwargs = {'streamer': streamer, 'generation_config': generation_config, **inputs}
     _model_generate = model.generate
     if is_torch_npu_available():
 
@@ -567,14 +717,12 @@ def inference_stream(model: PreTrainedModel,
     is_finished = False
     while not is_finished:
         try:
-            token = next(streamer)
-            raw_generate_ids.append(token)
+            token_list = next(streamer)
+            raw_generate_ids += token_list
         except StopIteration:
             is_finished = True
-        generate_ids = template.get_generate_ids(
-            torch.tensor(raw_generate_ids)[None], token_len)
-        if generation_info is not None:
-            generation_info['num_generated_tokens'] = len(generate_ids)
+        generate_ids = template.get_generate_ids(torch.tensor(raw_generate_ids)[None], token_len)
+        generation_info['num_generated_tokens'] = len(generate_ids)
         response = template.generate_ids_to_response(
             generate_ids,
             is_finished,
@@ -585,76 +733,72 @@ def inference_stream(model: PreTrainedModel,
             history[-1] = [query, response]
         else:
             history[-1][-1] = history[-1][-1][:act_length] + response
+
+        runtime = time.perf_counter() - start_runtime
+        generation_info['runtime'] = runtime
+        generation_info['samples/s'] = 1 / runtime
+        generation_info['tokens/s'] = generation_info['num_generated_tokens'] / runtime
         yield response, history
 
 
+@torch.inference_mode()
 def inference(model: PreTrainedModel,
               template: Template,
               query: str,
               history: Optional[History] = None,
               system: Optional[str] = None,
+              images: Optional[List[str]] = None,
               *,
               generation_config: Optional[GenerationConfig] = None,
               stop_words: Optional[StopWords] = None,
+              generation_info: Optional[Dict[str, Any]] = None,
               stream: bool = False,
               verbose: bool = False,
+              adapter_names: Optional[List[str]] = None,
               prompt_prefix: str = '[PROMPT]',
               output_prefix: str = '[OUTPUT]',
-              generation_info: Optional[Dict[str, int]] = None,
               **kwargs) -> Tuple[str, History]:
     """
     generation_config: Priority: generation_config > model.generation_config.
     """
-    if stop_words is None:
-        stop_words = []
+    runtime = time.perf_counter()
     if history is None:
         history = []
     else:
         history = deepcopy(history)
+    if generation_config is None:
+        generation_config = getattr(model, 'generation_config')
+    generation_config = deepcopy(generation_config)
+    if generation_info is None:
+        generation_info = {}
+    else:
+        generation_info.clear()
+    inputs, tokenizer_kwargs, token_len, example = _prepare_inputs(
+        model,
+        template,
+        query,
+        history,
+        system,
+        images,
+        generation_config=generation_config,
+        generation_info=generation_info,
+        stop_words=stop_words,
+        adapter_names=adapter_names,
+        **kwargs)
+    if len(inputs) == 0:
+        return '', history
 
-    is_observation = history[-1][-1].endswith(
-        'Observation:') if history and history[-1][-1] else False
+    # agent support
+    is_observation = history[-1][-1].endswith('Observation:') if history and history[-1][-1] else False
     if is_observation:
         history[-1][-1] = history[-1][-1] + query
         query = None
 
-    example = {
-        'query': query,
-        'history': history,
-        'system': system,
-        'images': kwargs.pop('images', None)  # for vl. str.
-    }
-    template.model = model
-    inputs, tokenizer_kwargs = template.encode(example)
-    if len(inputs) == 0:
-        raise ValueError(
-            'input_ids exceeds `max_length`. Please increase the value of `max_length`.'
-        )
-    inputs.pop('labels', None)
-    tokenizer = template.tokenizer
-    device = next(model.parameters()).device
-    if 'input_ids' in inputs:
-        input_ids = torch.tensor(inputs['input_ids'])[None]
-        inputs['input_ids'] = input_ids
-        token_len = input_ids.shape[1]
-    if 'inputs_embeds' in inputs:
-        inputs_embeds = inputs['inputs_embeds'][None]
-        inputs['inputs_embeds'] = inputs_embeds
-        token_len = inputs_embeds.shape[1]
-
-    inputs['attention_mask'] = torch.ones(token_len)[None]
-    if 'token_type_ids' in inputs:
-        inputs['token_type_ids'] = torch.tensor(inputs['token_type_ids'])[None]
-    model.eval()
-    if generation_config is None:
-        generation_config = getattr(model, 'generation_config', None)
-    generation_config = deepcopy(generation_config)
-    if stream is True and verbose is False:
-        logger.warning(
-            'Please set verbose to True to support TextStreamer, or use `inference_stream.`'
-        )
+    if stream and not verbose:
+        logger.warning('Please set verbose to True to support TextStreamer, or use `inference_stream.`')
         stream = False
     streamer = None
+    tokenizer = template.tokenizer
     if stream:
         streamer = TextStreamer(tokenizer, skip_prompt=True)
     if verbose:
@@ -663,50 +807,25 @@ def inference(model: PreTrainedModel,
             print(
                 f'{prompt_prefix}{safe_tokenizer_decode(tokenizer, input_ids[0], **tokenizer_kwargs)}{output_prefix}',
                 end='')
-        elif 'query' in example:
-            query = example['query']
+        else:
             print(f'[QUERY]{query}\n{output_prefix}', end='')
-    if tokenizer.eos_token_id is not None:
-        generation_config.eos_token_id = tokenizer.eos_token_id
-    if tokenizer.pad_token_id is not None:
-        generation_config.pad_token_id = tokenizer.pad_token_id
-    if tokenizer.bos_token_id is not None:
-        generation_config.bos_token_id = tokenizer.bos_token_id
-    if generation_config.max_new_tokens is not None:
-        generation_config.max_length = 20  # fix max_length, max_new_tokens warning
-        max_length = get_max_model_len(model.config)
-        if max_length and token_len + generation_config.max_new_tokens > max_length:
-            generation_config.max_new_tokens = max_length - token_len
-            if generation_config.max_new_tokens <= 0:
-                raise AssertionError('Current sentence length exceeds'
-                                     f'the model max_length: {max_length}')
-    if template.suffix[-1] not in stop_words:
-        stop_words.append(template.suffix[-1])
-    stopping_criteria = StoppingCriteriaList(
-        [StopWordsCriteria(tokenizer, stop_words, **tokenizer_kwargs)])
-    inputs = to_device(inputs, device)
-    if generation_info is not None:
-        generation_info['num_prompt_tokens'] = token_len
-    if 'inputs_embeds' in inputs:
-        inputs.pop('input_ids', None)
-    generate_ids = model.generate(
-        streamer=streamer,
-        generation_config=generation_config,
-        stopping_criteria=stopping_criteria,
-        **inputs)
+
+    generate_ids = model.generate(streamer=streamer, generation_config=generation_config, **inputs)
     generate_ids = template.get_generate_ids(generate_ids, token_len)
-    if generation_info is not None:
-        generation_info['num_generated_tokens'] = len(generate_ids)
-    response = None
+    generation_info['num_generated_tokens'] = len(generate_ids)
     if verbose and stream is False:
         response = tokenizer.decode(generate_ids, **tokenizer_kwargs)
         print(response)
-    response = template.generate_ids_to_response(
-        generate_ids, tokenizer_kwargs=tokenizer_kwargs)
+    response = template.generate_ids_to_response(generate_ids, tokenizer_kwargs=tokenizer_kwargs)
+    response = template.post_process_generate_response(response=response, example=example)
     if not is_observation:
         history.append([query, response])
     else:
         history[-1][-1] = history[-1][-1] + response
+    runtime = time.perf_counter() - runtime
+    generation_info['runtime'] = runtime
+    generation_info['samples/s'] = 1 / runtime
+    generation_info['tokens/s'] = generation_info['num_generated_tokens'] / runtime
     return response, history
 
 
@@ -732,23 +851,27 @@ def limit_history_length(template: Template, query: str,
     return old_history, history
 
 
-Messages = List[Dict[str, str]]
+Messages = List[Dict[str, Union[str, List[Dict]]]]
 
 
 def history_to_messages(history: Optional[History],
                         query: Optional[str] = None,
-                        system: Optional[str] = None) -> Messages:
+                        system: Optional[str] = None,
+                        roles: Optional[List[List[str]]] = None) -> Messages:
     if history is None:
         history = []
     messages = []
+    if not roles:
+        roles = [['user', 'assistant']] * (len(history) + 1)
+    assert len(roles) == len(history) + 1
     if system is not None:
         messages.append({'role': 'system', 'content': system})
-    for h in history:
+    for role, h in zip(roles, history):
         assert isinstance(h, (list, tuple))
-        messages.append({'role': 'user', 'content': h[0]})
-        messages.append({'role': 'assistant', 'content': h[1]})
+        messages.append({'role': role[0], 'content': h[0]})
+        messages.append({'role': role[1], 'content': h[1]})
     if query is not None:
-        messages.append({'role': 'user', 'content': query})
+        messages.append({'role': roles[-1][0], 'content': query})
     return messages
 
 
@@ -758,23 +881,62 @@ def messages_to_history(messages: Messages) -> Dict[str, Any]:
         system = messages[0]['content']
         messages = messages[1::]
     history = []
+    history_roles = []
     for q, r in zip(messages[::2], messages[1::2]):
         history.append([q['content'], r['content']])
+        history_roles.append([q['role'], r['role']])
     query = None
+    query_role = None
     if len(messages) % 2 == 1:
         query = messages[-1]['content']
+        query_role = messages[-1]['role']
     return {
         'history': history,
+        'history_roles': history_roles,
         'query': query,
+        'query_role': query_role,
         'system': system,
     }
 
 
-def set_generation_config(model: Module,
-                          generation_config: GenerationConfig) -> None:
+def messages_join_observation(messages: Messages):
+    """
+        Joins observations from 'tool' message into the 'assistant' response.
+
+        Example:
+        ---------
+        Original messages:
+        messages = [
+            {'role': 'user', 'content': "What's the weather today in Hangzhou?"},
+            {'role': 'assistant', 'content': 'Action: get_weather\nAction Input:\
+                  [{"location": "Hangzhou"}]\nObservations:'},
+            {'role': 'tool', 'content': 'It is 26 degrees Celsius and sunny in Hangzhou today.'}
+        ]
+
+        Transformed messages:
+        messages = [
+            {'role': 'user', 'content': "What's the weather today in Hangzhou?"},
+            {'role': 'assistant', 'content': 'Action: get_weather\nAction Input:\
+                  [{"location": "Hangzhou"}]\nObservations: It is 26 degrees Celsius and sunny in Hangzhou today.'}
+        ]
+        """
+
+    if len(messages) >= 2 and messages[-2]['role'] == 'assistant' and messages[-2]['content'] and messages[-2][
+            'content'].endswith('Observation:'):
+        assert messages[-1]['role'] == 'tool'
+        observations = messages[-1]['content']
+        messages.pop(-1)
+        messages[-1]['content'] += observations
+    return
+
+
+def set_generation_config(model: Module, generation_config: GenerationConfig) -> None:
     old_generation_config = getattr(model, 'generation_config', None)
+    old_generation_priority_config = ['no_repeat_ngram_size']
     if old_generation_config is not None:
         for k, v in old_generation_config.__dict__.items():
+            if k in old_generation_priority_config:
+                setattr(generation_config, k, v)
             if k not in generation_config.__dict__:
                 setattr(generation_config, k, v)
     model.generation_config = generation_config
@@ -784,8 +946,23 @@ def is_vllm_available():
     return importlib.util.find_spec('vllm') is not None
 
 
-def get_time_info(log_history: List[Dict[str, Any]],
-                  n_train_samples: Optional[int]) -> Optional[Dict[str, Any]]:
+def is_lmdeploy_available():
+    return importlib.util.find_spec('lmdeploy') is not None
+
+
+def is_xtuner_available():
+    return importlib.util.find_spec('xtuner') is not None
+
+
+def is_megatron_available():
+    return importlib.util.find_spec('megatron') is not None
+
+
+def is_unsloth_available() -> bool:
+    return importlib.util.find_spec('unsloth') is not None
+
+
+def get_time_info(log_history: List[Dict[str, Any]], n_train_samples: Optional[int]) -> Optional[Dict[str, Any]]:
     time_info = None
     try:
         last_log_history = log_history[-1]
@@ -801,9 +978,15 @@ def get_time_info(log_history: List[Dict[str, Any]],
     return time_info
 
 
-def get_max_model_len(config: PretrainedConfig) -> Optional[int]:
+def get_max_model_len(config: PretrainedConfig, ignore_rope_scaling=False) -> Optional[int]:
     INF = int(1e9)
     max_model_len = INF
+    for k in ['language_config', 'llm_config', 'text_config']:
+        llm_config = getattr(config, k, None)
+        if llm_config is not None:
+            config = llm_config
+            break
+
     possible_keys = [
         'seq_length',  # qwen, chatglm
         'max_position_embeddings',  # qwen1.5, llama2
@@ -821,7 +1004,34 @@ def get_max_model_len(config: PretrainedConfig) -> Optional[int]:
             max_model_len = min(max_model_len, max_len_key)
     if max_model_len == INF:
         max_model_len = None
+
+    if (not ignore_rope_scaling and max_model_len and getattr(config, 'rope_scaling', None)
+            and config.rope_scaling.get('factor')):
+        max_model_len = max(int(max_model_len * config.rope_scaling.get('factor')), max_model_len)
     return max_model_len
+
+
+def set_rope_scaling(config: PretrainedConfig, rope_scaling: Dict[str, Any]):
+    for k in ['language_config', 'llm_config', 'text_config']:
+        llm_config = getattr(config, k, None)
+        if llm_config is not None:
+            config = llm_config
+            break
+
+    if getattr(config, 'rope_scaling', None):
+        rope_scaling['factor'] = max(config.rope_scaling.get('factor', -1), rope_scaling['factor'])
+        rope_scaling = {**config.rope_scaling, **rope_scaling}
+    config.rope_scaling = rope_scaling
+
+
+def get_rope_scaling(config: PretrainedConfig):
+    for k in ['language_config', 'llm_config', 'text_config']:
+        llm_config = getattr(config, k, None)
+        if llm_config is not None:
+            config = llm_config
+            break
+
+    return getattr(config, 'rope_scaling')
 
 
 if is_ddp_plus_mp():

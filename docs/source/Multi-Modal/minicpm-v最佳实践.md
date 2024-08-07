@@ -1,6 +1,6 @@
 
 # MiniCPM-V 最佳实践
-以下内容以`minicpm-v-3b-chat`为例, 如果你想要使用更新版本的 MiniCPM-V 多模态模型(v2), 你可以将`--model_type minicpm-v-3b-chat`切换成`--model_type minicpm-v-v2`.
+以下内容以`minicpm-v-3b-chat`为例, 如果你想要使用更新版本的 MiniCPM-V 多模态模型(v2), 你可以将`--model_type minicpm-v-3b-chat`切换成`--model_type minicpm-v-v2-chat`.
 
 ## 目录
 - [环境准备](#环境准备)
@@ -11,12 +11,13 @@
 
 ## 环境准备
 ```shell
+# 请使用"ms-swift>=2.2"或者main分支.
 pip install 'ms-swift[llm]' -U
 ```
 
 模型链接:
 - minicpm-v-3b-chat: [https://modelscope.cn/models/OpenBMB/MiniCPM-V/summary](https://modelscope.cn/models/OpenBMB/MiniCPM-V/summary)
-- minicpm-v-v2: [https://modelscope.cn/models/OpenBMB/MiniCPM-V-2/summary](https://modelscope.cn/models/OpenBMB/MiniCPM-V-2/summary)
+- minicpm-v-v2-chat: [https://modelscope.cn/models/OpenBMB/MiniCPM-V-2/summary](https://modelscope.cn/models/OpenBMB/MiniCPM-V-2/summary)
 
 
 ## 推理
@@ -31,7 +32,7 @@ CUDA_VISIBLE_DEVICES=0 swift infer --model_type minicpm-v-3b-chat
 输出: (支持传入本地路径或URL)
 ```python
 """
-<<< 描述这种图片
+<<< 描述这张图片
 Input a media path or URL <<< http://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/cat.png
 该图像的特点是一只黑白相间的猫，它的眼睛睁得大大的，似乎在凝视着相机。这只猫看起来很小，可能是一只幼猫。
 --------------------------------------------------
@@ -49,6 +50,11 @@ Input a media path or URL <<< http://modelscope-open.oss-cn-hangzhou.aliyuncs.co
 <<< 根据图片中的内容写首诗
 Input a media path or URL <<< http://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/poem.png
 在宁静的夜晚，一艘船在平静的湖面上航行。
+--------------------------------------------------
+<<< clear
+<<< 对图片进行OCR
+Input a media path or URL <<< https://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/ocr.png
+Swift 250+ LMM35+ MLLM
 """
 ```
 
@@ -69,6 +75,10 @@ math:
 poem:
 
 <img src="http://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/poem.png" width="250" style="display: inline-block;">
+
+ocr:
+
+<img src="https://modelscope-open.oss-cn-hangzhou.aliyuncs.com/images/ocr.png" width="250" style="display: inline-block;">
 
 **单样本推理**
 
@@ -129,13 +139,12 @@ road:
 ## 微调
 多模态大模型微调通常使用**自定义数据集**进行微调. 这里展示可直接运行的demo:
 
-(默认只对LLM部分的qkv进行lora微调. 如果你想对所有linear含vision模型部分都进行微调, 可以指定`--lora_target_modules ALL`. 支持全参数微调.)
 ```shell
 # Experimental environment: A10, 3090, V100, ...
 # 10GB GPU memory
 CUDA_VISIBLE_DEVICES=0 swift sft \
     --model_type minicpm-v-3b-chat \
-    --dataset coco-mini-en-2 \
+    --dataset coco-en-2-mini \
 ```
 
 [自定义数据集](../LLM/自定义与拓展.md#-推荐命令行参数的形式)支持json, jsonl样式, 以下是自定义数据集的例子:
@@ -145,7 +154,7 @@ CUDA_VISIBLE_DEVICES=0 swift sft \
 ```jsonl
 {"query": "55555", "response": "66666", "images": ["image_path"]}
 {"query": "eeeee", "response": "fffff", "history": [], "images": ["image_path"]}
-{"query": "EEEEE", "response": "FFFFF", "history": [["AAAAA", "BBBBB"], ["CCCCC", "DDDDD"]], "images": ["image_path"]}
+{"query": "EEEEE", "response": "FFFFF", "history": [["query1", "response1"], ["query2", "response2"]], "images": ["image_path"]}
 ```
 
 

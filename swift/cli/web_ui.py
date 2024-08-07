@@ -2,7 +2,7 @@
 import sys
 sys.path.append('/home/ph/LLM2/swift')
 sys.path.insert(0,'/home/ph/LLM2/swift')
-from swift.ui.app import run_ui
+from swift.ui.app import webui_main
 
 if __name__ == '__main__':
-    run_ui()
+    webui_main()

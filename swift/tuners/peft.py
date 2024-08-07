@@ -3,22 +3,30 @@
 import os.path
 from dataclasses import asdict, dataclass, field
 from functools import partial, reduce
+from types import MethodType
 from typing import Dict, Optional
 
 import json
 import peft
 import torch
 import torch.nn
-from peft import (AdaLoraConfig, IA3Config, LoftQConfig, LoHaConfig, LoKrConfig, LoraModel, OFTConfig, PeftConfig,
-                  PeftModel, PeftModelForCausalLM, PeftModelForSeq2SeqLM, PeftModelForSequenceClassification,
-                  PeftModelForTokenClassification, PrefixTuningConfig, PromptEncoderConfig, PromptLearningConfig,
-                  PromptTuningConfig, get_peft_config, get_peft_model, get_peft_model_state_dict)
+import transformers
+from modelscope import snapshot_download
+from peft import (AdaLoraConfig, BOFTConfig, BOFTModel, IA3Config, IA3Model, LoftQConfig, LoHaConfig, LoKrConfig,
+                  LoraModel, OFTConfig, PeftConfig, PeftModel, PeftModelForCausalLM, PeftModelForSeq2SeqLM,
+                  PeftModelForSequenceClassification, PeftModelForTokenClassification, PrefixTuningConfig,
+                  PromptEncoderConfig, PromptLearningConfig, PromptTuningConfig, VeraConfig, VeraModel, get_peft_config,
+                  get_peft_model, get_peft_model_state_dict)
 from peft.config import PeftConfigMixin
 from peft.tuners.lora import Embedding
 from transformers import Trainer
 
 from swift import get_logger
-from swift.hub.snapshot_download import snapshot_download
+
+try:
+    from peft import FourierFTModel
+except ImportError:
+    FourierFTModel = None
 
 logger = get_logger()
 dispatchers = []
@@ -26,7 +34,7 @@ dispatchers = []
 
 @dataclass
 class LoraConfig(peft.LoraConfig):
-    lora_dtype: str = field(
+    lora_dtype: Optional[str] = field(
         default=None, metadata={'help': 'The lora dtype, default None means following the original layer\'s dtype'})
 
     lorap_lr_ratio: float = field(default=2.0**4, metadata={'help': 'The lr ratio of lora_B in lora+'})
@@ -80,6 +88,16 @@ def _create_and_replace_hook(self, *args, **kwargs):
                 break
 
     if target and target.__class__.__name__ == 'NonDynamicallyQuantizableLinear':
+        return
+
+    all_supported_names = ('linear', )
+    all_supported_types = (torch.nn.Embedding, torch.nn.Conv2d, transformers.pytorch_utils.Conv1D)
+
+    is_multimodal = getattr(self.model, 'is_multimodal', False)
+
+    if is_multimodal and target and (not any(
+        [name in target.__class__.__name__.lower()
+         for name in all_supported_names]) and not any([isinstance(target, type) for type in all_supported_types])):
         return
 
     return self._create_and_replace_origin(*args, **kwargs)
@@ -258,21 +276,44 @@ def adalora_mask_to_budget(self, model, budget):
     return rank_pattern
 
 
+def keep_device_forward(self, *args, **kwargs):
+    x = args[0]
+    if self.weight.device != x.device:
+        return self.forward_origin(x.to(self.weight.device), *args[1:], **kwargs)
+    else:
+        return self.forward_origin(*args, **kwargs)
+
+
 def hot_patch_peft_module():
     from peft.tuners.lora import LoraLayer
 
     # Fix Lora does not support NonDynamicallyQuantizableLinear
     LoraModel._create_and_replace_origin = LoraModel._create_and_replace
     LoraModel._create_and_replace = _create_and_replace_hook
+    VeraModel._create_and_replace_origin = VeraModel._create_and_replace
+    VeraModel._create_and_replace = _create_and_replace_hook
+    BOFTModel._create_and_replace_origin = BOFTModel._create_and_replace
+    BOFTModel._create_and_replace = _create_and_replace_hook
+    IA3Model._create_and_replace_origin = IA3Model._create_and_replace
+    IA3Model._create_and_replace = _create_and_replace_hook
+    if FourierFTModel is not None:
+        FourierFTModel._create_and_replace_origin = FourierFTModel._create_and_replace
+        FourierFTModel._create_and_replace = _create_and_replace_hook
 
     # Support type conversion
     def init(self, model: torch.nn.Module, config: Dict[str, LoraConfig], adapter_name):
         self.__init_origin__(model, config, adapter_name)
+        if isinstance(self.active_adapter, list):
+            self.active_adapter = self.active_adapter[0]
         active_config = config[self.active_adapter] if isinstance(config, dict) else config
         if hasattr(active_config, 'lora_dtype'):
             for name, module in model.named_modules():
                 if isinstance(module, LoraLayer):
                     _convert_dtype(module, self.active_adapter, active_config.lora_dtype)
+                    for lora in list(module.lora_A.values()) + list(module.lora_B.values()):
+                        if not hasattr(lora, 'forward_origin'):
+                            lora.forward_origin = lora.forward
+                            lora.forward = MethodType(keep_device_forward, lora)
 
     LoraModel.__init_origin__ = LoraModel.__init__
     LoraModel.__init__ = init
@@ -343,6 +384,9 @@ IA3Config = wrap_module(IA3Config)
 LoHaConfig = wrap_module(LoHaConfig)
 LoKrConfig = wrap_module(LoKrConfig)
 LoftQConfig = wrap_module(LoftQConfig)
+OFTConfig = wrap_module(OFTConfig)
+BOFTConfig = wrap_module(BOFTConfig)
+VeraConfig = wrap_module(VeraConfig)
 OFTConfig = wrap_module(OFTConfig)
 get_peft_config = get_peft_config
 get_peft_model_state_dict = get_peft_model_state_dict

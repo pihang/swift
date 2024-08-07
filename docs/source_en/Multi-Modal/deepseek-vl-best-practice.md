@@ -1,4 +1,4 @@
-# Deepseek-VL Best Practices
+# Deepseek-VL Best Practice
 
 ## Table of Contents
 - [Environment Preparation](#environment-preparation)
@@ -158,13 +158,12 @@ Multi-modal large model fine-tuning usually uses **custom datasets**. Here is a 
 
 LoRA fine-tuning:
 
-(By default, only lora fine-tuning is performed on the qkv part of the LLM. If you want to fine-tune all linear parts including the vision model, you can specify `--lora_target_modules ALL`)
 ```shell
 # Experimental environment: A10, 3090, V100
 # 20GB GPU memory
 CUDA_VISIBLE_DEVICES=0 swift sft \
     --model_type deepseek-vl-7b-chat \
-    --dataset coco-mini-en \
+    --dataset coco-en-mini \
 ```
 
 Full parameter fine-tuning:
@@ -173,7 +172,7 @@ Full parameter fine-tuning:
 # 4 * 70GB GPU memory
 NPROC_PER_NODE=4 CUDA_VISIBLE_DEVICES=0,1,2,3 swift sft \
     --model_type deepseek-vl-7b-chat \
-    --dataset coco-mini-en \
+    --dataset coco-en-mini \
     --sft_type full \
     --use_flash_attn true \
     --deepspeed default-zero2

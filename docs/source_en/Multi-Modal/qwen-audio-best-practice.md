@@ -1,4 +1,4 @@
-# Qwen-Audio Best Practices
+# Qwen-Audio Best Practice
 
 ## Table of Contents
 - [Environment Setup](#environment-setup)
@@ -98,7 +98,6 @@ Multimodal large model fine-tuning usually uses **custom datasets** for fine-tun
 
 LoRA fine-tuning:
 
-(By default, only the qkv of the LLM part is lora fine-tuned. If you want to fine-tune all linear including the audio model part, you can specify `--lora_target_modules ALL`)
 ```shell
 # Experimental environment: A10, 3090, V100...
 # 22GB GPU memory
@@ -128,7 +127,7 @@ NPROC_PER_NODE=4 CUDA_VISIBLE_DEVICES=0,1,2,3 swift sft \
     --deepspeed default-zero2
 ```
 
-[Custom datasets](../LLM/Customization.md#-Recommended-Command-line-arguments)  supports json, jsonl styles, the following is an example of a custom dataset:
+[Custom datasets](../LLM/Customization.md#-Recommended-Command-line-arguments) supports json, jsonl styles, the following is an example of a custom dataset:
 
 (Supports multi-turn conversations, supports each turn of conversation containing multiple or no audio segments, supports passing local paths or URLs)
 
