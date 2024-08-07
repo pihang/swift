@@ -2,8 +2,9 @@
 # 2 * 22GB GPU memory
 
 CUDA_VISIBLE_DEVICES=0,1 \
-swift sft \
-    --model_id_or_path baichuan-inc/Baichuan2-13B-Chat \
+python swift/cli/sft.py \
+    --model_type 'baichuan2-13b-chat' \
+    --model_id_or_path /home/ph/LLM/Baichuan-13B-main/Baichuan2-13B-Chat \
     --model_revision master \
     --sft_type lora \
     --tuner_backend peft \

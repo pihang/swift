@@ -85,7 +85,7 @@ def gradio_chat_demo(args: AppUIArguments) -> None:
     # Compatible with InferArguments
     share = getattr(args, 'share', False)
     server_name = getattr(args, 'server_name', '127.0.0.1')
-    server_port = getattr(args, 'server_port', 7860)
+    server_port = getattr(args, 'server_port', 7861)
     demo.queue().launch(height=1000, share=share, server_name=server_name, server_port=server_port)
 
 

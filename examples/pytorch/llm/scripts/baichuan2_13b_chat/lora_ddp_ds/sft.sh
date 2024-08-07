@@ -1,22 +1,24 @@
 # Experimental environment: 2 * A100
 # 2 * 35GB GPU memory
-nproc_per_node=2
+# 本来dataset = damo-agent-mini-zh
+nproc_per_node=4
 
-PYTHONPATH=../../.. \
-CUDA_VISIBLE_DEVICES=0,1 \
+PYTHONPATH='/home/ph/LLM2/swift/' \
+CUDA_VISIBLE_DEVICES=1,2,3,4 \
 torchrun \
     --nproc_per_node=$nproc_per_node \
     --master_port 29500 \
-    llm_sft.py \
-    --model_id_or_path baichuan-inc/Baichuan2-13B-Chat \
+    swift/cli/sft.py \
+    --model_type 'baichuan2-13b-chat' \
+    --model_id_or_path '/home/ph/LLM/Baichuan-13B-main/Baichuan2-13B-Chat' \
     --model_revision master \
     --sft_type lora \
     --tuner_backend peft \
     --template_type AUTO \
     --dtype AUTO \
-    --output_dir output \
+    --output_dir output/baichuan2-13b-chat/lora-mp-ddp-ds \
     --ddp_backend nccl \
-    --dataset damo-agent-mini-zh \
+    --dataset dureader-robust-zh \
     --num_train_epochs 1 \
     --max_length 4096 \
     --check_dataset_strategy warning \
@@ -35,4 +37,4 @@ torchrun \
     --save_steps 100 \
     --save_total_limit 2 \
     --logging_steps 10 \
-    --deepspeed default-zero2 \
+    --deepspeed default-zero3 \

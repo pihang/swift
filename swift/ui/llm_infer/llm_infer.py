@@ -298,16 +298,8 @@ class LLMInfer(BaseUI):
         kwargs_is_list = {}
         other_kwargs = {}
         more_params = {}
-<<<<<<< HEAD
-        keys = [
-            key for key, value in cls.elements().items()
-            if not isinstance(value, (Tab, Accordion))
-        ]
-        for key, value in zip(keys, args):   # args就是网页的填入
-=======
         keys = [key for key, value in cls.elements().items() if not isinstance(value, (Tab, Accordion))]
-        for key, value in zip(keys, args):
->>>>>>> upstream/main
+        for key, value in zip(keys, args):  # args就是网页的填入
             compare_value = infer_args.get(key)
             compare_value_arg = str(compare_value) if not isinstance(compare_value, (list, dict)) else compare_value
             compare_value_ui = str(value) if not isinstance(value, (list, dict)) else value
