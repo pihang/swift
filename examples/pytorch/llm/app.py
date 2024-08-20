@@ -1,0 +1,16 @@
+# Copyright (c) Alibaba, Inc. and its affiliates.
+# import os
+# os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+import custom
+
+from swift.llm import AppUIArguments, ModelType, app_ui_main
+
+if __name__ == '__main__':
+    # Please refer to the `infer.sh` for setting the parameters.
+    # text-generation
+    # args = AppUIArguments(model_type=ModelType.chatglm3_6b_base)
+    # or chat
+    args = AppUIArguments(model_type=ModelType.qwen_7b_chat_int4)
+    # or load from ckpt dir
+    # args = AppUIArguments(ckpt_dir='xxx/vx_xxx/checkpoint-xxx')
+    app_ui_main(args)       # 报错ImportError: /lib/x86_64-linux-gnu/libstdc++.so.6: version `GLIBCXX_3.4.29' not found解决https://blog.csdn.net/weixin_39379635/article/details/129159713
