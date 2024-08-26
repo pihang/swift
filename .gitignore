@@ -8,6 +8,11 @@ test.py
 # C extensions
 *.so
 
+*.jsonl
+*.json
+*.pth
+*.bin
+
 # Distribution / packaging
 .Python
 build/
