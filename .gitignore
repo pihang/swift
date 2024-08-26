@@ -12,6 +12,7 @@ test.py
 *.json
 *.pth
 *.bin
+./datasets
 
 # Distribution / packaging
 .Python
