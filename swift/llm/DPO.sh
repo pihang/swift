@@ -1,12 +1,14 @@
 nproc_per_node=2
-
+NCCL_IB_DISABLE=1 \
+NCCL_P2P_DISABLE=1 \
 CUDA_VISIBLE_DEVICES=1,2 \
+PYTHONPATH=/home/ph/LLM/swift-main/ \
 NPROC_PER_NODE=$nproc_per_node \
 MASTER_PORT=29500 \
-swift rlhf \
+python swift/llm/rlhf.py \
     --rlhf_type dpo \
-    --model_type  yi-6b-chat \
-    --ref_model_type  yi-6b-chat \
+    --model_type  qwen2-0_5b-instruct \
+    --ref_model_type  qwen2-0_5b-instruct \
     --model_revision  master \
     --sft_type  lora \
     --tuner_backend  swift \

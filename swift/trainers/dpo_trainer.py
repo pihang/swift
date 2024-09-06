@@ -31,10 +31,12 @@ class DPOTrainer(PushToMsHubMixin, SwiftMixin, HFDPOTrainer):
         super().__init__(*args, **kwargs)
         # remove origin columns to resolve conflit in streaming mode
         self.train_dataset = self.train_dataset.remove_columns(self.column_names)
+        # 删除训练数据集中的原始列，避免在流式模式下的冲突
         if self.eval_dataset is not None:
             self.eval_dataset = self.eval_dataset.remove_columns(self.column_names)
 
         if self.need_filter:
+            # 确保每个样本中的 prompt_input_ids 字段不为 None。
             self.train_dataset = self.train_dataset.filter(lambda x: x['prompt_input_ids'] is not None)
             if self.eval_dataset is not None:
                 self.eval_dataset = self.eval_dataset.filter(lambda x: x['prompt_input_ids'] is not None)
@@ -55,6 +57,7 @@ class DPOTrainer(PushToMsHubMixin, SwiftMixin, HFDPOTrainer):
             'memory': {},
             'model': self.model.get_trainable_parameters() if hasattr(self.model, 'get_trainable_parameters') else None,
         }
+        # 'trainable params: 4,399,104 || all params: 498,431,872 || trainable%: 0.8826|| cuda memory: 2.24GiB.'
         # modify after init
         self.is_vision_model = is_vision
         self.model.config.model_type = self.model.config.model_type[:-1]  # remove suffix
@@ -203,22 +206,22 @@ class DPOTrainer(PushToMsHubMixin, SwiftMixin, HFDPOTrainer):
         metrics = {}
         forward_output = self.concatenated_forward(model, batch)
         (
-            policy_chosen_logps,
-            policy_rejected_logps,
-            policy_chosen_logits,
-            policy_rejected_logits,
-            policy_nll_loss,
+            policy_chosen_logps,  # 策略模型对选择答案的对数概率
+            policy_rejected_logps,  # 策略模型对拒绝答案的对数概率
+            policy_chosen_logits,  # 策略模型对选择答案的logits
+            policy_rejected_logits,  # 策略模型对拒绝答案的logits
+            policy_nll_loss,  # 策略模型的负对数似然损失
         ) = forward_output[:5]
         if self.aux_loss_enabled:
-            aux_loss = forward_output[5]
+            aux_loss = forward_output[5]  # 如果启用了辅助损失，则获取辅助损失
 
-        # if reference_chosen_logps and reference_rejected_logps in batch use them, otherwise use the reference model
+        # 如果批次中有 reference_chosen_logps 和 reference_rejected_logps，使用它们；否则使用参考模型
         if 'reference_chosen_logps' in batch and 'reference_rejected_logps' in batch:
             reference_chosen_logps = batch['reference_chosen_logps']
             reference_rejected_logps = batch['reference_rejected_logps']
         else:
             with torch.no_grad():
-                if self.ref_model is None:
+                if self.ref_model is None:   # 如果没有参考模型，使用 null_ref_context 进行前向传播
                     with self.null_ref_context():
                         (
                             reference_chosen_logps,
@@ -320,7 +323,7 @@ class DPOTrainer(PushToMsHubMixin, SwiftMixin, HFDPOTrainer):
             use_cache=False,
             **model_kwargs,
         )
-        all_logits = outputs.logits
+        all_logits = outputs.logits   # (2,max_lens,151936)
 
         if all_logits.shape[:2] != concatenated_batch['concatenated_labels'].shape[:2]:
             # for llava, the model returns logits for the entire sequence,
@@ -336,6 +339,7 @@ class DPOTrainer(PushToMsHubMixin, SwiftMixin, HFDPOTrainer):
         )
 
         def cross_entropy_loss(logits, labels):
+            # 先对 logits 和标签进行 shift（因为非编码-解码模型预测当前 token，而编码-解码模型预测下一个 token），然后计算交叉熵损失
             if not self.is_encoder_decoder:
                 # Shift so that tokens < n predict n
                 logits = logits[..., :-1, :].contiguous()

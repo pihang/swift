@@ -29,7 +29,7 @@ def get_main(args_class: Type[_TArgsClass],
         if (isinstance(args, (AppUIArguments, WebuiArguments)) and 'JUPYTER_NAME' in os.environ
                 and 'dsw-' in os.environ['JUPYTER_NAME'] and 'GRADIO_ROOT_PATH' not in os.environ):
             os.environ['GRADIO_ROOT_PATH'] = f"/{os.environ['JUPYTER_NAME']}/proxy/7860"
-        result = llm_x(args, **kwargs)
+        result = llm_x(args, **kwargs)   # 调用主逻辑函数
         logger.info(f'End time of running main: {datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")}')
         return result
 
