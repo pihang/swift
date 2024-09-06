@@ -4,18 +4,6 @@ from typing import Optional, Union
 
 
 @dataclasses.dataclass
-class MultiModelKeys:
-
-    language_model: str = None
-
-    projector: Optional[str] = None
-
-    vision_tower: str = None
-
-    vision_resampler: str = None
-
-
-@dataclasses.dataclass
 class ModelKeys:
 
     model_type: str = None
@@ -51,6 +39,18 @@ class ModelKeys:
     kvb_proj: str = None
 
     output: str = None
+
+
+@dataclasses.dataclass
+class MultiModelKeys(ModelKeys):
+
+    language_model: str = None
+
+    projector: Optional[str] = None
+
+    vision_tower: str = None
+
+    vision_resampler: str = None
 
 
 LLAMA_KEYS = ModelKeys(
@@ -260,6 +260,12 @@ QWEN2_AUDIO_KEYS = MultiModelKeys(
     vision_tower='audio_tower',
 )
 
+QWEN2_VL_KEYS = MultiModelKeys(
+    language_model='model',
+    projector=None,
+    vision_tower='visual',
+)
+
 GLM4V_KEYS = MultiModelKeys(
     language_model='transformer.encoder',
     projector=None,
@@ -277,6 +283,7 @@ MODEL_KEYS_MAPPING = OrderedDict([
     ('qwen_audio', QWEN_AUDIO_KEYS),
     ('qwen_vl', QWEN_VL_KEYS),
     ('qwen2_audio', QWEN2_AUDIO_KEYS),
+    ('qwen2_vl', QWEN2_VL_KEYS),
     ('glm4v', GLM4V_KEYS),
     ('llava_next_video', LLAVA_NEXT_VIDEO_KEYS),
     ('llava_llama', LLAVA_LLAMA_KEYS),

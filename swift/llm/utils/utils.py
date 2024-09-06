@@ -79,6 +79,7 @@ def download_dataset(model_id: str,
 use_hf = strtobool(os.environ.get('USE_HF', 'False'))
 if not use_hf:
     from modelscope import MsDataset
+
     _old_msdataset_load = MsDataset.load
 
     @wraps(_old_msdataset_load)
@@ -276,7 +277,7 @@ class LazyLLMDataset(Dataset):
             try:
                 res = self.template.encode(data)
             except Exception as e:
-                logger.error('Error occurs in lazy tokenize:', e)
+                logger.error(f'Error occurs in lazy tokenize: {e}')
                 continue
             if len(res[0]) > 0:
                 return res
@@ -399,8 +400,8 @@ def safe_tokenizer_decode(tokenizer: PreTrainedTokenizerBase, input_ids: List[in
         if not _is_special(input_ids[i]) and _is_special(input_ids[i - 1]):
             e = i
             result_str += f'[{input_ids[i - 1]} * {e - s}]'
-    if _is_special(input_ids[-1]):
-        result_str += f'[{input_ids[i - 1]} * {len(input_ids) - s}]'
+    if _is_special(input_ids[i]):
+        result_str += f'[{input_ids[i]} * {len(input_ids) - s}]'
     else:
         result_str += tokenizer.decode(input_ids[e:], **tokenizer_kwargs)
     return result_str
@@ -541,10 +542,8 @@ def to_device(inputs: Any, device: Device) -> Any:
         res = []
         for b in inputs:
             res.append(to_device(b, device))
-    elif isinstance(inputs, (int, float, str)) or inputs is None:
-        res = inputs
     else:
-        raise TypeError(f'inputs: {inputs}, {type(inputs)}')
+        res = inputs
     return res
 
 
@@ -624,7 +623,10 @@ def _prepare_inputs(model: PreTrainedModel,
     if 'token_type_ids' in inputs:
         inputs['token_type_ids'] = torch.tensor(inputs['token_type_ids'])[None]
     model.eval()
-
+    if not generation_config.do_sample:
+        generation_config.temperature = 1.
+        generation_config.top_p = 1.
+        generation_config.top_k = 50
     if tokenizer.eos_token_id is not None:
         generation_config.eos_token_id = tokenizer.eos_token_id
     if tokenizer.pad_token_id is not None:
@@ -664,7 +666,7 @@ def inference_stream(model: PreTrainedModel,
                      stop_words: Optional[StopWords] = None,
                      generation_info: Optional[Dict[str, Any]] = None,
                      adapter_names: Optional[List[str]] = None,
-                     **kwargs) -> Iterator[Tuple[str, History]]:
+                     **kwargs) -> Iterator[Union[Tuple[str, History], Dict[str, Any]]]:
     """
     generation_config: Priority: generation_config > model.generation_config.
     """
@@ -707,13 +709,16 @@ def inference_stream(model: PreTrainedModel,
         raise ValueError(error_msg)
 
     streamer = TokenListIteratorStreamer()
+    return_dict = generation_config.return_dict_in_generate
     generation_kwargs = {'streamer': streamer, 'generation_config': generation_config, **inputs}
-    _model_generate = model.generate
-    if is_torch_npu_available():
+    result_queue = Queue()
 
-        def _model_generate(*args, **kwargs):
+    def _model_generate(*args, **kwargs):
+        if is_torch_npu_available():
             torch.npu.set_device(model.device)
-            return model.generate(*args, **kwargs)
+        res = model.generate(*args, **kwargs)
+        result_queue.put(res)
+        return res
 
     thread = Thread(target=_model_generate, kwargs=generation_kwargs)
     thread.start()
@@ -732,7 +737,12 @@ def inference_stream(model: PreTrainedModel,
             raw_generate_ids += token_list
         except StopIteration:
             is_finished = True
+        res = {}
         generate_ids = template.get_generate_ids(torch.tensor(raw_generate_ids)[None], token_len)
+        if return_dict and is_finished:
+            thread.join()
+            res = dict(result_queue.get())
+            res['sequences'] = generate_ids
         generation_info['num_generated_tokens'] = len(generate_ids)
         response = template.generate_ids_to_response(
             generate_ids,
@@ -749,7 +759,11 @@ def inference_stream(model: PreTrainedModel,
         generation_info['runtime'] = runtime
         generation_info['samples/s'] = 1 / runtime
         generation_info['tokens/s'] = generation_info['num_generated_tokens'] / runtime
-        yield response, history
+        if return_dict:
+            res.update({'response': response, 'history': history})
+            yield res
+        else:
+            yield response, history
 
 
 @torch.inference_mode()
@@ -768,7 +782,7 @@ def inference(model: PreTrainedModel,
               adapter_names: Optional[List[str]] = None,
               prompt_prefix: str = '[PROMPT]',
               output_prefix: str = '[OUTPUT]',
-              **kwargs) -> Tuple[str, History]:
+              **kwargs) -> Union[Tuple[str, History], Dict[str, Any]]:
     """
     generation_config: Priority: generation_config > model.generation_config.
     """
@@ -821,7 +835,11 @@ def inference(model: PreTrainedModel,
         else:
             print(f'[QUERY]{query}\n{output_prefix}', end='')
 
+    return_dict = generation_config.return_dict_in_generate
     generate_ids = model.generate(streamer=streamer, generation_config=generation_config, **inputs)
+    if return_dict:
+        res = dict(generate_ids)
+        generate_ids = generate_ids['sequences']
     generate_ids = template.get_generate_ids(generate_ids, token_len)
     generation_info['num_generated_tokens'] = len(generate_ids)
     if verbose and stream is False:
@@ -837,7 +855,12 @@ def inference(model: PreTrainedModel,
     generation_info['runtime'] = runtime
     generation_info['samples/s'] = 1 / runtime
     generation_info['tokens/s'] = generation_info['num_generated_tokens'] / runtime
-    return response, history
+    if return_dict:
+        res['sequences'] = generate_ids
+        res.update({'response': response, 'history': history})
+        return res
+    else:
+        return response, history
 
 
 def limit_history_length(template: Template, query: str,
@@ -945,11 +968,12 @@ def set_generation_config(model: Module, generation_config: GenerationConfig) ->
     old_generation_config = getattr(model, 'generation_config', None)
     old_generation_priority_config = ['no_repeat_ngram_size']
     if old_generation_config is not None:
-        for k, v in old_generation_config.__dict__.items():
-            if k in old_generation_priority_config:
-                setattr(generation_config, k, v)
-            if k not in generation_config.__dict__:
-                setattr(generation_config, k, v)
+        for k, old_v in old_generation_config.__dict__.items():
+            if k.startswith('_'):
+                continue
+            v = getattr(generation_config, k, None)
+            if k in old_generation_priority_config or old_v is not None and v is None:
+                setattr(generation_config, k, old_v)
     model.generation_config = generation_config
 
 
@@ -959,6 +983,10 @@ def is_vllm_available():
 
 def is_lmdeploy_available():
     return importlib.util.find_spec('lmdeploy') is not None
+
+
+def is_liger_available():
+    return importlib.util.find_spec('liger_kernel') is not None
 
 
 def is_xtuner_available():
@@ -996,6 +1024,15 @@ def get_time_info(log_history: List[Dict[str, Any]], n_train_samples: Optional[i
 class LLMIterableDataset(HfIterableDataset):
 
     def __init__(self, dataset: HfIterableDataset, max_retries=10):
+        super().__init__(
+            dataset._ex_iterable,
+            dataset._info,
+            dataset._split,
+            dataset._formatting,
+            dataset._shuffling,
+            dataset._distributed,
+            dataset._token_per_repo_id,
+        )
         self.dataset = dataset
         self.max_retries = max_retries
         from .dataset import standard_keys
@@ -1014,7 +1051,8 @@ class LLMIterableDataset(HfIterableDataset):
                     else:
                         raise ValueError
                 except StopIteration:
-                    return
+                    iterator = iter(self.dataset)
+                    break
                 except Exception as e:
                     retries += 1
                     if retries >= self.max_retries:
@@ -1078,8 +1116,7 @@ def get_rope_scaling(config: PretrainedConfig):
 
 
 if is_ddp_plus_mp():
-    from accelerate.utils.modeling import (get_balanced_memory,
-                                           infer_auto_device_map)
+    from accelerate.utils.modeling import get_balanced_memory, infer_auto_device_map
 
     @wraps(infer_auto_device_map)
     def _infer_auto_device_map_patch(

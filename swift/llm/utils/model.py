@@ -150,6 +150,14 @@ class ModelType:
     qwen_audio_chat = 'qwen-audio-chat'
     qwen2_audio_7b = 'qwen2-audio-7b'
     qwen2_audio_7b_instruct = 'qwen2-audio-7b-instruct'
+    qwen2_vl_2b_instruct = 'qwen2-vl-2b-instruct'
+    qwen2_vl_2b_instruct_gptq_int4 = 'qwen2-vl-2b-instruct-gptq-int4'
+    qwen2_vl_2b_instruct_gptq_int8 = 'qwen2-vl-2b-instruct-gptq-int8'
+    qwen2_vl_2b_instruct_awq = 'qwen2-vl-2b-instruct-awq'
+    qwen2_vl_7b_instruct = 'qwen2-vl-7b-instruct'
+    qwen2_vl_7b_instruct_gptq_int4 = 'qwen2-vl-7b-instruct-gptq-int4'
+    qwen2_vl_7b_instruct_gptq_int8 = 'qwen2-vl-7b-instruct-gptq-int8'
+    qwen2_vl_7b_instruct_awq = 'qwen2-vl-7b-instruct-awq'
     # chatglm
     chatglm2_6b = 'chatglm2-6b'
     chatglm2_6b_32k = 'chatglm2-6b-32k'
@@ -275,11 +283,16 @@ class ModelType:
     yi_1_5_9b_chat_gptq_int4 = 'yi-1_5-9b-chat-gptq-int4'
     yi_1_5_34b_chat_awq_int4 = 'yi-1_5-34b-chat-awq-int4'
     yi_1_5_34b_chat_gptq_int4 = 'yi-1_5-34b-chat-gptq-int4'
+    # yi-coder
+    yi_coder_1_5b = 'yi-coder-1_5b'
+    yi_coder_1_5b_chat = 'yi-coder-1_5b-chat'
+    yi_coder_9b = 'yi-coder-9b'
+    yi_coder_9b_chat = 'yi-coder-9b-chat'
     # yi-vl
     yi_vl_6b_chat = 'yi-vl-6b-chat'
     yi_vl_34b_chat = 'yi-vl-34b-chat'
     # llava-llama (xtuner)
-    llava_llama3_8b_v1_1 = 'llava-llama-3-8b-v1_1'
+    llava_llama3_8b_v1_1 = 'llava-llama3-8b-v1_1'
     # internlm
     internlm_7b = 'internlm-7b'
     internlm_7b_chat = 'internlm-7b-chat'
@@ -327,6 +340,11 @@ class ModelType:
     internvl2_26b = 'internvl2-26b'
     internvl2_40b = 'internvl2-40b'
     internvl2_llama3_76b = 'internvl2-llama3-76b'
+    internvl2_2b_awq = 'internvl2-2b-awq'
+    internvl2_8b_awq = 'internvl2-8b-awq'
+    internvl2_26b_awq = 'internvl2-26b-awq'
+    internvl2_40b_awq = 'internvl2-40b-awq'
+    internvl2_llama3_76b_awq = 'internvl2-llama3-76b-awq'
     # deepseek
     deepseek_7b = 'deepseek-7b'
     deepseek_7b_chat = 'deepseek-7b-chat'
@@ -383,6 +401,7 @@ class ModelType:
     minicpm_2b_chat = 'minicpm-2b-chat'
     minicpm_2b_128k = 'minicpm-2b-128k'
     minicpm_moe_8x2b = 'minicpm-moe-8x2b'
+    minicpm3_4b = 'minicpm3-4b'
     # minicpm-v
     minicpm_v_3b_chat = 'minicpm-v-3b-chat'
     minicpm_v_v2_chat = 'minicpm-v-v2-chat'
@@ -537,22 +556,24 @@ class ModelType:
 
 class LoRATM(NamedTuple):
     # default lora target modules for multi-modals
-    qwen_audio = f'{get_regex_for_mm_default_lora("qwen_audio")}'
-    qwen_vl = f'{get_regex_for_mm_default_lora("qwen_vl")}'
-    qwen2_audio = f'{get_regex_for_mm_default_lora("qwen2_audio")}'
-    glm4v = f'{get_regex_for_mm_default_lora("glm4v")}'
-    llava_next_video = f'{get_regex_for_mm_default_lora("llava_next_video")}'
-    llava_llama = f'{get_regex_for_mm_default_lora("llava_llama")}'
-    llava = f'{get_regex_for_mm_default_lora("llava")}'
+    qwen_audio = 'qwen_audio'
+    qwen_vl = 'qwen_vl'
+    qwen2_audio = 'qwen2_audio'
+    qwen2_vl = 'qwen2_vl'
+    glm4v = 'glm4v'
+    llava_next_video = 'llava_next_video'
+    llava_llama = 'llava_llama'
+    llava = 'llava'
     internlm_xcomposer = ['attention.wqkv', 'attention.wo', 'feed_forward.w1', 'feed_forward.w2', 'feed_forward.w3']
-    internvl = f'{get_regex_for_mm_default_lora("internvl")}'
-    deepseek_vl = f'{get_regex_for_mm_default_lora("deepseek_vl")}'
-    minicpm_v = f'{get_regex_for_mm_default_lora("minicpm_v")}'
-    phi3v = f'{get_regex_for_mm_default_lora("phi3v")}'
-    cogvlm = f'{get_regex_for_mm_default_lora("cogvlm")}'
-    florence = f'{get_regex_for_mm_default_lora("florence")}'
-    idefics3 = f'{get_regex_for_mm_default_lora("idefics3")}'
+    internvl = 'internvl'
+    deepseek_vl = 'deepseek_vl'
+    minicpm_v = 'minicpm_v'
+    phi3v = 'phi3v'
+    cogvlm = 'cogvlm'
+    florence = 'florence'
+    idefics3 = 'idefics3'
     # default lora target modules for nlp llms.
+    minicpm3 = ['q_a_proj', 'q_b_proj', 'kv_a_proj_with_mqa', 'kv_b_proj']
     baichuan = ['W_pack']
     chatglm = ['query_key_value']
     llama = ['q_proj', 'k_proj', 'v_proj']
@@ -917,8 +938,6 @@ def get_model_tokenizer_from_repo(model_dir: str,
         model.is_gptq = is_gptq
         model.is_awq = is_awq
         model.is_aqlm = is_aqlm
-        if hasattr(model, 'hf_device_map'):
-            logger.debug(f'Model hf_device_map: {model.hf_device_map}')
     return model, tokenizer
 
 
@@ -978,7 +997,7 @@ def get_model_tokenizer_cogvlm2(*args, **kwargs):
     LoRATM.llava,
     TemplateType.llava_llama_instruct,
     support_flash_attn=True,
-    support_lmdeploy=True,
+    support_vllm=True,
     requires=['transformers>=4.36'],
     tags=['multi-modal', 'vision'],
     hf_model_id='xtuner/llava-llama-3-8b-v1_1-transformers')
@@ -1789,6 +1808,15 @@ def get_model_tokenizer_glm4v(model_dir: str,
     support_vllm=True,
     hf_model_id='openbmb/MiniCPM-2B-128k')
 @register_model(
+    ModelType.minicpm3_4b,
+    'OpenBMB/MiniCPM3-4B',
+    LoRATM.minicpm3,
+    TemplateType.chatml,
+    requires=['transformers>=4.36'],
+    support_flash_attn=True,
+    # support_vllm=True,
+    hf_model_id='openbmb/MiniCPM3-4B')
+@register_model(
     ModelType.phi3_4b_128k_instruct,
     'LLM-Research/Phi-3-mini-128k-instruct',
     LoRATM.phi3,
@@ -2192,10 +2220,46 @@ def get_model_tokenizer_glm4v(model_dir: str,
     support_lmdeploy=True,
     hf_model_id='HuggingFaceH4/zephyr-7b-beta')
 @register_model(
+    ModelType.yi_coder_1_5b,
+    '01ai/Yi-Coder-1.5B',
+    LoRATM.llama,
+    TemplateType.default_generation,
+    support_flash_attn=True,
+    support_vllm=True,
+    support_lmdeploy=True,
+    hf_model_id='01-ai/Yi-Coder-1.5B')
+@register_model(
+    ModelType.yi_coder_9b,
+    '01ai/Yi-Coder-9B',
+    LoRATM.llama,
+    TemplateType.default_generation,
+    support_flash_attn=True,
+    support_vllm=True,
+    support_lmdeploy=True,
+    hf_model_id='01-ai/Yi-Coder-9B')
+@register_model(
+    ModelType.yi_coder_1_5b_chat,
+    '01ai/Yi-Coder-1.5B-Chat',
+    LoRATM.llama,
+    TemplateType.yi_coder,
+    support_flash_attn=True,
+    support_vllm=True,
+    support_lmdeploy=True,
+    hf_model_id='01-ai/Yi-Coder-1.5B-Chat')
+@register_model(
+    ModelType.yi_coder_9b_chat,
+    '01ai/Yi-Coder-9B-Chat',
+    LoRATM.llama,
+    TemplateType.yi_coder,
+    support_flash_attn=True,
+    support_vllm=True,
+    support_lmdeploy=True,
+    hf_model_id='01-ai/Yi-Coder-9B-Chat')
+@register_model(
     ModelType.yi_6b_chat,
     '01ai/Yi-6B-Chat',
     LoRATM.llama,
-    TemplateType.yi,
+    TemplateType.chatml,
     eos_token='<|im_end|>',
     support_flash_attn=True,
     support_vllm=True,
@@ -2205,7 +2269,7 @@ def get_model_tokenizer_glm4v(model_dir: str,
     ModelType.yi_6b_chat_awq,
     '01ai/Yi-6B-Chat-4bits',
     LoRATM.llama,
-    TemplateType.yi,
+    TemplateType.chatml,
     eos_token='<|im_end|>',
     requires=['autoawq'],
     torch_dtype=torch.float16,
@@ -2218,7 +2282,7 @@ def get_model_tokenizer_glm4v(model_dir: str,
     ModelType.yi_6b_chat_int8,
     '01ai/Yi-6B-Chat-8bits',
     LoRATM.llama,
-    TemplateType.yi,
+    TemplateType.chatml,
     eos_token='<|im_end|>',
     requires=['auto_gptq'],
     torch_dtype=torch.float16,
@@ -2230,7 +2294,7 @@ def get_model_tokenizer_glm4v(model_dir: str,
     ModelType.yi_34b_chat,
     '01ai/Yi-34B-Chat',
     LoRATM.llama,
-    TemplateType.yi,
+    TemplateType.chatml,
     eos_token='<|im_end|>',
     support_flash_attn=True,
     support_vllm=True,
@@ -2240,7 +2304,7 @@ def get_model_tokenizer_glm4v(model_dir: str,
     ModelType.yi_34b_chat_awq,
     '01ai/Yi-34B-Chat-4bits',
     LoRATM.llama,
-    TemplateType.yi,
+    TemplateType.chatml,
     eos_token='<|im_end|>',
     requires=['autoawq'],
     torch_dtype=torch.float16,
@@ -2253,7 +2317,7 @@ def get_model_tokenizer_glm4v(model_dir: str,
     ModelType.yi_34b_chat_int8,
     '01ai/Yi-34B-Chat-8bits',
     LoRATM.llama,
-    TemplateType.yi,
+    TemplateType.chatml,
     eos_token='<|im_end|>',
     requires=['auto_gptq'],
     torch_dtype=torch.float16,
@@ -2573,7 +2637,7 @@ def get_model_tokenizer_with_flash_attn(model_dir: str,
     ModelType.yi_1_5_6b_chat,
     '01ai/Yi-1.5-6B-Chat',
     LoRATM.llama,
-    TemplateType.yi1_5,
+    TemplateType.chatml,
     support_flash_attn=True,
     support_vllm=True,
     support_lmdeploy=True,
@@ -2582,7 +2646,7 @@ def get_model_tokenizer_with_flash_attn(model_dir: str,
     ModelType.yi_1_5_6b_chat_awq_int4,
     'AI-ModelScope/Yi-1.5-6B-Chat-AWQ',
     LoRATM.llama,
-    TemplateType.yi1_5,
+    TemplateType.chatml,
     requires=['autoawq'],
     torch_dtype=torch.float16,
     function_kwargs={'is_awq': True},
@@ -2594,7 +2658,7 @@ def get_model_tokenizer_with_flash_attn(model_dir: str,
     ModelType.yi_1_5_6b_chat_gptq_int4,
     'AI-ModelScope/Yi-1.5-6B-Chat-GPTQ',
     LoRATM.llama,
-    TemplateType.yi1_5,
+    TemplateType.chatml,
     requires=['auto_gptq>=0.5'],
     function_kwargs={'gptq_bits': 4},
     torch_dtype=torch.float16,
@@ -2605,7 +2669,7 @@ def get_model_tokenizer_with_flash_attn(model_dir: str,
     ModelType.yi_1_5_9b_chat_awq_int4,
     'AI-ModelScope/Yi-1.5-9B-Chat-AWQ',
     LoRATM.llama,
-    TemplateType.yi1_5,
+    TemplateType.chatml,
     requires=['autoawq'],
     torch_dtype=torch.float16,
     function_kwargs={'is_awq': True},
@@ -2617,7 +2681,7 @@ def get_model_tokenizer_with_flash_attn(model_dir: str,
     ModelType.yi_1_5_9b_chat_gptq_int4,
     'AI-ModelScope/Yi-1.5-9B-Chat-GPTQ',
     LoRATM.llama,
-    TemplateType.yi1_5,
+    TemplateType.chatml,
     requires=['auto_gptq>=0.5'],
     function_kwargs={'gptq_bits': 4},
     torch_dtype=torch.float16,
@@ -2628,7 +2692,7 @@ def get_model_tokenizer_with_flash_attn(model_dir: str,
     ModelType.yi_1_5_34b_chat_awq_int4,
     'AI-ModelScope/Yi-1.5-34B-Chat-AWQ',
     LoRATM.llama,
-    TemplateType.yi1_5,
+    TemplateType.chatml,
     requires=['autoawq'],
     torch_dtype=torch.float16,
     function_kwargs={'is_awq': True},
@@ -2640,7 +2704,7 @@ def get_model_tokenizer_with_flash_attn(model_dir: str,
     ModelType.yi_1_5_34b_chat_gptq_int4,
     'AI-ModelScope/Yi-1.5-34B-Chat-GPTQ',
     LoRATM.llama,
-    TemplateType.yi1_5,
+    TemplateType.chatml,
     requires=['auto_gptq>=0.5'],
     function_kwargs={'gptq_bits': 4},
     torch_dtype=torch.float16,
@@ -2660,7 +2724,7 @@ def get_model_tokenizer_with_flash_attn(model_dir: str,
     ModelType.yi_1_5_9b_chat,
     '01ai/Yi-1.5-9B-Chat',
     LoRATM.llama,
-    TemplateType.yi1_5,
+    TemplateType.chatml,
     support_flash_attn=True,
     support_vllm=True,
     support_lmdeploy=True,
@@ -2669,7 +2733,7 @@ def get_model_tokenizer_with_flash_attn(model_dir: str,
     ModelType.yi_1_5_9b_chat_16k,
     '01ai/Yi-1.5-9B-Chat-16K',
     LoRATM.llama,
-    TemplateType.yi1_5,
+    TemplateType.chatml,
     support_flash_attn=True,
     support_vllm=True,
     support_lmdeploy=True,
@@ -2687,7 +2751,7 @@ def get_model_tokenizer_with_flash_attn(model_dir: str,
     ModelType.yi_1_5_34b_chat,
     '01ai/Yi-1.5-34B-Chat',
     LoRATM.llama,
-    TemplateType.yi1_5,
+    TemplateType.chatml,
     support_flash_attn=True,
     support_vllm=True,
     support_lmdeploy=True,
@@ -2696,7 +2760,7 @@ def get_model_tokenizer_with_flash_attn(model_dir: str,
     ModelType.yi_1_5_34b_chat_16k,
     '01ai/Yi-1.5-34B-Chat-16K',
     LoRATM.llama,
-    TemplateType.yi1_5,
+    TemplateType.chatml,
     support_flash_attn=True,
     support_vllm=True,
     support_lmdeploy=True,
@@ -3463,6 +3527,131 @@ def get_model_tokenizer_qwen2_audio(model_dir: str,
 
 
 @register_model(
+    ModelType.qwen2_vl_7b_instruct,
+    'qwen/Qwen2-VL-7B-Instruct',
+    LoRATM.qwen2_vl,
+    TemplateType.qwen2_vl,
+    support_flash_attn=True,
+    placeholder_tokens=['<|image_pad|>', '<|video_pad|>'],
+    # pip install qwen_vl_utils
+    requires=['transformers>=4.45.0.dev0', 'qwen_vl_utils'],  # 'pyav'
+    tags=['multi-modal', 'vision'],
+    hf_model_id='Qwen/Qwen2-VL-7B-Instruct')
+@register_model(
+    ModelType.qwen2_vl_7b_instruct_gptq_int4,
+    'qwen/Qwen2-VL-7B-Instruct-GPTQ-Int4',
+    LoRATM.qwen2_vl,
+    TemplateType.qwen2_vl,
+    support_flash_attn=True,
+    placeholder_tokens=['<|image_pad|>', '<|video_pad|>'],
+    requires=['transformers>=4.45.0.dev0', 'qwen_vl_utils', 'auto_gptq>=0.5'],
+    tags=['multi-modal', 'vision'],
+    function_kwargs={'gptq_bits': 4},
+    torch_dtype=torch.float16,
+    hf_model_id='Qwen/Qwen2-VL-7B-Instruct-GPTQ-Int4')
+@register_model(
+    ModelType.qwen2_vl_7b_instruct_gptq_int8,
+    'qwen/Qwen2-VL-7B-Instruct-GPTQ-Int8',
+    LoRATM.qwen2_vl,
+    TemplateType.qwen2_vl,
+    support_flash_attn=True,
+    placeholder_tokens=['<|image_pad|>', '<|video_pad|>'],
+    requires=['transformers>=4.45.0.dev0', 'qwen_vl_utils', 'auto_gptq>=0.5'],
+    tags=['multi-modal', 'vision'],
+    function_kwargs={'gptq_bits': 8},
+    torch_dtype=torch.float16,
+    hf_model_id='Qwen/Qwen2-VL-7B-Instruct-GPTQ-Int8')
+@register_model(
+    ModelType.qwen2_vl_7b_instruct_awq,
+    'qwen/Qwen2-VL-7B-Instruct-AWQ',
+    LoRATM.qwen2_vl,
+    TemplateType.qwen2_vl,
+    support_flash_attn=True,
+    placeholder_tokens=['<|image_pad|>', '<|video_pad|>'],
+    requires=['transformers>=4.45.0.dev0', 'qwen_vl_utils', 'autoawq'],
+    tags=['multi-modal', 'vision'],
+    function_kwargs={'is_awq': True},
+    torch_dtype=torch.float16,
+    hf_model_id='Qwen/Qwen2-VL-7B-Instruct-AWQ')
+@register_model(
+    ModelType.qwen2_vl_2b_instruct,
+    'qwen/Qwen2-VL-2B-Instruct',
+    LoRATM.qwen2_vl,
+    TemplateType.qwen2_vl,
+    support_flash_attn=True,
+    placeholder_tokens=['<|image_pad|>', '<|video_pad|>'],
+    requires=['transformers>=4.45.0.dev0', 'qwen_vl_utils'],  # 'pyav'
+    tags=['multi-modal', 'vision'],
+    hf_model_id='Qwen/Qwen2-VL-2B-Instruct')
+@register_model(
+    ModelType.qwen2_vl_2b_instruct_gptq_int4,
+    'qwen/Qwen2-VL-2B-Instruct-GPTQ-Int4',
+    LoRATM.qwen2_vl,
+    TemplateType.qwen2_vl,
+    support_flash_attn=True,
+    placeholder_tokens=['<|image_pad|>', '<|video_pad|>'],
+    requires=['transformers>=4.45.0.dev0', 'qwen_vl_utils', 'auto_gptq>=0.5'],
+    tags=['multi-modal', 'vision'],
+    function_kwargs={'gptq_bits': 4},
+    torch_dtype=torch.float16,
+    hf_model_id='Qwen/Qwen2-VL-2B-Instruct-GPTQ-Int4')
+@register_model(
+    ModelType.qwen2_vl_2b_instruct_gptq_int8,
+    'qwen/Qwen2-VL-2B-Instruct-GPTQ-Int8',
+    LoRATM.qwen2_vl,
+    TemplateType.qwen2_vl,
+    support_flash_attn=True,
+    placeholder_tokens=['<|image_pad|>', '<|video_pad|>'],
+    requires=['transformers>=4.45.0.dev0', 'qwen_vl_utils', 'auto_gptq>=0.5'],
+    tags=['multi-modal', 'vision'],
+    function_kwargs={'gptq_bits': 8},
+    torch_dtype=torch.float16,
+    hf_model_id='Qwen/Qwen2-VL-2B-Instruct-GPTQ-Int8')
+@register_model(
+    ModelType.qwen2_vl_2b_instruct_awq,
+    'qwen/Qwen2-VL-2B-Instruct-AWQ',
+    LoRATM.qwen2_vl,
+    TemplateType.qwen2_vl,
+    support_flash_attn=True,
+    placeholder_tokens=['<|image_pad|>', '<|video_pad|>'],
+    requires=['transformers>=4.45.0.dev0', 'qwen_vl_utils', 'autoawq'],
+    tags=['multi-modal', 'vision'],
+    function_kwargs={'is_awq': True},
+    torch_dtype=torch.float16,
+    hf_model_id='Qwen/Qwen2-VL-2B-Instruct-AWQ')
+def get_model_tokenizer_qwen2_vl(model_dir: str,
+                                 torch_dtype: Dtype,
+                                 model_kwargs: Dict[str, Any],
+                                 load_model: bool = True,
+                                 **kwargs):
+    try:
+        from torchvision.io import video
+        if not hasattr(video, '_patching'):
+            # not read audio
+            video._patching = True
+            _old_read_from_stream = video._read_from_stream
+
+            def _read_from_stream(container: 'av.container.Container', start_offset: float, end_offset: float,
+                                  pts_unit: str, stream: 'av.stream.Stream', *args, **kwargs) -> List['av.frame.Frame']:
+                if stream.type == 'video':
+                    return _old_read_from_stream(container, start_offset, end_offset, pts_unit, stream, *args, **kwargs)
+                return []
+
+            video._read_from_stream = _read_from_stream
+    except Exception:
+        pass
+
+    from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
+    processor = AutoProcessor.from_pretrained(model_dir)
+    kwargs['automodel_class'] = Qwen2VLForConditionalGeneration
+    model, tokenizer = get_model_tokenizer_with_flash_attn(model_dir, torch_dtype, model_kwargs, load_model, **kwargs)
+    tokenizer.processor = processor
+    if model is not None:
+        model.model.embed_tokens.register_forward_hook(_clone_hook)
+    return model, tokenizer
+
+
+@register_model(
     ModelType.qwen1half_0_5b_chat_int4,
     'qwen/Qwen1.5-0.5B-Chat-GPTQ-Int4',
     LoRATM.llama,
@@ -4145,6 +4334,81 @@ def get_model_tokenizer_deepseek2(model_dir: str,
     placeholder_tokens=['<IMG_CONTEXT>'],
     tags=['multi-modal', 'vision', 'video'],
     hf_model_id='OpenGVLab/InternVL2-Llama3-76B')
+@register_model(
+    ModelType.internvl2_2b_awq,
+    'OpenGVLab/InternVL2-2B-AWQ',
+    LoRATM.internvl,
+    TemplateType.internvl2,
+    requires=['transformers>=4.36', 'timm'],
+    ignore_file_pattern=[r'.+\.zip$'],
+    support_flash_attn=True,
+    support_lmdeploy=True,
+    support_vllm=False,
+    torch_dtype=torch.float16,
+    function_kwargs={'is_awq': True},
+    placeholder_tokens=['<IMG_CONTEXT>'],
+    tags=['multi-modal', 'vision', 'video'],
+    hf_model_id='OpenGVLab/InternVL2-2B-AWQ')
+@register_model(
+    ModelType.internvl2_8b_awq,
+    'OpenGVLab/InternVL2-8B-AWQ',
+    LoRATM.internvl,
+    TemplateType.internvl2,
+    requires=['transformers>=4.36', 'timm'],
+    ignore_file_pattern=[r'.+\.zip$'],
+    support_flash_attn=True,
+    support_lmdeploy=True,
+    support_vllm=False,
+    torch_dtype=torch.float16,
+    function_kwargs={'is_awq': True},
+    placeholder_tokens=['<IMG_CONTEXT>'],
+    tags=['multi-modal', 'vision', 'video'],
+    hf_model_id='OpenGVLab/InternVL2-8B-AWQ')
+@register_model(
+    ModelType.internvl2_26b_awq,
+    'OpenGVLab/InternVL2-26B-AWQ',
+    LoRATM.internvl,
+    TemplateType.internvl2,
+    requires=['transformers>=4.36', 'timm'],
+    ignore_file_pattern=[r'.+\.zip$'],
+    support_flash_attn=True,
+    support_lmdeploy=True,
+    support_vllm=False,
+    torch_dtype=torch.float16,
+    function_kwargs={'is_awq': True},
+    placeholder_tokens=['<IMG_CONTEXT>'],
+    tags=['multi-modal', 'vision', 'video'],
+    hf_model_id='OpenGVLab/InternVL2-26B-AWQ')
+@register_model(
+    ModelType.internvl2_40b_awq,
+    'OpenGVLab/InternVL2-40B-AWQ',
+    LoRATM.internvl,
+    TemplateType.internvl2,
+    requires=['transformers>=4.36', 'timm'],
+    ignore_file_pattern=[r'.+\.zip$'],
+    support_flash_attn=True,
+    support_lmdeploy=True,
+    support_vllm=False,
+    torch_dtype=torch.float16,
+    function_kwargs={'is_awq': True},
+    placeholder_tokens=['<IMG_CONTEXT>'],
+    tags=['multi-modal', 'vision', 'video'],
+    hf_model_id='OpenGVLab/InternVL2-40B-AWQ')
+@register_model(
+    ModelType.internvl2_llama3_76b_awq,
+    'OpenGVLab/InternVL2-Llama3-76B-AWQ',
+    LoRATM.internvl,
+    TemplateType.internvl2,
+    requires=['transformers>=4.36', 'timm'],
+    ignore_file_pattern=[r'.+\.zip$'],
+    support_flash_attn=True,
+    support_lmdeploy=True,
+    support_vllm=False,
+    torch_dtype=torch.float16,
+    function_kwargs={'is_awq': True},
+    placeholder_tokens=['<IMG_CONTEXT>'],
+    tags=['multi-modal', 'vision', 'video'],
+    hf_model_id='OpenGVLab/InternVL2-Llama3-76B-AWQ')
 def get_model_tokenizer_internvl(model_dir: str,
                                  torch_dtype: Dtype,
                                  model_kwargs: Dict[str, Any],
@@ -4152,7 +4416,10 @@ def get_model_tokenizer_internvl(model_dir: str,
                                  **kwargs):
     tokenizer = AutoTokenizer.from_pretrained(model_dir, trust_remote_code=True, use_fast=False)
     if kwargs.get('eos_token') is None and tokenizer.eos_token != '<|im_end|>':
-        del tokenizer.__class__.eos_token_id
+        try:
+            del tokenizer.__class__.eos_token_id
+        except AttributeError:
+            pass
         tokenizer.eos_token = '<|im_end|>'
 
     model_config = AutoConfig.from_pretrained(model_dir, trust_remote_code=True)
@@ -4192,7 +4459,7 @@ def get_model_tokenizer_internvl(model_dir: str,
     eos_token='<|im_end|>',
     support_flash_attn=True,
     support_lmdeploy=True,
-    requires=['decord'],
+    # requires=['decord'],
     tags=['multi-modal', 'vision'],
     function_kwargs={'version': 'v2.5'},
     hf_model_id='internlm/internlm-xcomposer2d5-7b')
@@ -4293,6 +4560,9 @@ def git_clone_github(github_url: str,
 
 
 def _use_submodel_func(model, submodel_name: str, func_list: List[str]) -> None:
+    if hasattr(model, '_is_patching'):
+        return
+    model._is_patching = True
     submodel = getattr(model, submodel_name)
 
     def _get_new_func(func_name: str):
@@ -4300,7 +4570,7 @@ def _use_submodel_func(model, submodel_name: str, func_list: List[str]) -> None:
 
         @wraps(_old_func)
         def _new_func(self, *args, **kwargs):
-            res = _old_func(getattr(self, submodel_name), *args, **kwargs)
+            res = _old_func(submodel, *args, **kwargs)
             if func_name == 'forward':
                 device = find_device(args)
                 if device is None:
@@ -4314,6 +4584,8 @@ def _use_submodel_func(model, submodel_name: str, func_list: List[str]) -> None:
         setattr(model, key, MethodType(_get_new_func(key), model))
         if key == 'generate' and model.device != submodel.device:
             submodel.__class__.device = model.device
+        if key == 'forward' and 'generate' in func_list:
+            setattr(submodel, key, MethodType(_get_new_func(key), submodel))  # fix device_map
 
 
 @register_model(
@@ -5770,7 +6042,7 @@ def ignore_check_imports():
     TemplateType.minicpm_v_v2_6,
     support_flash_attn=True,
     support_vllm=True,
-    requires=['timm', 'transformers>=4.36', 'decord'],
+    requires=['timm', 'transformers>=4.36'],  # 'decord'
     placeholder_tokens=['<unk>'],
     function_kwargs={'version': 'v2.6'},
     tags=['multi-modal', 'vision', 'video'],
@@ -5839,7 +6111,6 @@ def get_model_tokenizer_llava_hf(model_dir: str, *args, **kwargs):
     eos_token='</s>',
     support_flash_attn=True,
     support_vllm=True,
-    support_lmdeploy=True,
     requires=['transformers>=4.36'],
     tags=['multi-modal', 'vision'],
     hf_model_id='llava-hf/llava-1.5-13b-hf')
@@ -5851,7 +6122,6 @@ def get_model_tokenizer_llava_hf(model_dir: str, *args, **kwargs):
     eos_token='</s>',
     support_flash_attn=True,
     support_vllm=True,
-    support_lmdeploy=True,
     requires=['transformers>=4.36'],
     tags=['multi-modal', 'vision'],
     hf_model_id='llava-hf/llava-1.5-7b-hf')
@@ -6038,7 +6308,6 @@ def get_model_tokenizer_llava_next_video_yi(*args, **kwargs):
     LoRATM.llava_llama,
     TemplateType.llama3_llava_next,
     support_flash_attn=True,
-    support_lmdeploy=True,
     tags=['multi-modal', 'vision'],
     function_kwargs={'llm_model_type': 'next_llama'},
     hf_model_id='lmms-lab/llama3-llava-next-8b')
@@ -6048,7 +6317,6 @@ def get_model_tokenizer_llava_next_video_yi(*args, **kwargs):
     LoRATM.llava,
     TemplateType.llava_qwen,
     support_flash_attn=True,
-    support_lmdeploy=True,
     tags=['multi-modal', 'vision'],
     function_kwargs={'llm_model_type': 'next_qwen'},
     hf_model_id='lmms-lab/llava-next-72b')
@@ -6058,7 +6326,6 @@ def get_model_tokenizer_llava_next_video_yi(*args, **kwargs):
     LoRATM.llava,
     TemplateType.llava_qwen,
     support_flash_attn=True,
-    support_lmdeploy=True,
     tags=['multi-modal', 'vision'],
     function_kwargs={'llm_model_type': 'next_qwen'},
     hf_model_id='lmms-lab/llava-next-110b')
@@ -6400,5 +6667,8 @@ def get_default_template_type(model_type: str) -> Optional[str]:
     return MODEL_MAPPING[model_type].get('template')
 
 
-def get_default_lora_target_modules(model_type: str) -> Optional[List[str]]:
-    return MODEL_MAPPING[model_type].get('lora_target_modules')
+def get_default_lora_target_modules(model_type: str) -> Union[List[str], str, None]:
+    res = MODEL_MAPPING[model_type].get('lora_target_modules')
+    if isinstance(res, str):
+        res = get_regex_for_mm_default_lora(res)
+    return res

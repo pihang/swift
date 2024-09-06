@@ -1,5 +1,6 @@
 # Copyright (c) Alibaba, Inc. and its affiliates.
 import os
+from functools import partial
 from typing import Any, Dict
 
 import json
@@ -10,7 +11,7 @@ from transformers.integrations import is_deepspeed_zero3_enabled
 from transformers.utils import is_torch_npu_available
 from trl.models import create_reference_model
 
-from swift.trainers import RLHFTrainerFactory
+from swift.trainers import RLHFTrainerFactory, get_preprocessed_rlhf_dataset, patch_trl
 from swift.utils import (append_to_jsonl, check_json_format, get_dist_setting, get_logger, get_main, get_model_info,
                          is_ddp_plus_mp, is_dist, is_master, plot_images, seed_everything, show_layers)
 from .sft import _get_train_val_dataset
@@ -41,12 +42,8 @@ def llm_rlhf(args: RLHFArguments) -> Dict[str, Any]:
         model_kwargs = {'device_map': None}
     elif is_torch_npu_available():
         model_kwargs = {'device_map': local_rank if local_rank >= 0 else 0}
-    elif args.device_map_config_path is not None:
-        cwd = os.getcwd()
-        config_path = args.device_map_config_path if os.path.isabs(args.device_map_config_path) else os.path.join(
-            cwd, args.device_map_config_path)
-        with open(config_path, 'r') as json_file:
-            model_kwargs = {'device_map': json.load(json_file)}
+    elif args.device_map_config is not None:
+        model_kwargs = {'device_map': args.device_map_config}
     else:
         model_kwargs = {'low_cpu_mem_usage': True}
         if is_dist() and not is_ddp_plus_mp():
@@ -130,8 +127,8 @@ def llm_rlhf(args: RLHFArguments) -> Dict[str, Any]:
         num_beams=args.num_beams,
         pad_token_id=tokenizer.pad_token_id,
         eos_token_id=tokenizer.eos_token_id)
-    logger.info(f'generation_config: {generation_config}')
     set_generation_config(model, generation_config)
+    logger.info(f'model.generation_config: {model.generation_config}')
 
     # Preparing LoRA
     model, _ = prepare_model(model, args)
@@ -166,7 +163,7 @@ def llm_rlhf(args: RLHFArguments) -> Dict[str, Any]:
         ref_model = None
 
     if hasattr(model, 'hf_device_map'):
-        logger.info(f'model device_map {model.hf_device_map}')
+        logger.info(f'model.hf_device_map: {model.hf_device_map}')
 
     train_dataset, val_dataset = _get_train_val_dataset(args)
     if val_dataset is None:
@@ -195,29 +192,63 @@ def llm_rlhf(args: RLHFArguments) -> Dict[str, Any]:
     template._is_training = True
     args.system = template.default_system
     logger.info(f'system: {args.system}')
+    # TODO: lazy dataset
+    if args.lazy_tokenize:
+        logger.warning('lazy_tokenize is not supported for RLHF training now, it will be supported soon.')
+
+    vision_keys = []
+    if args.is_vision:
+        # get vision related keys in mllm
+        td0 = template.encode(next(iter(train_dataset)))[0] if not streaming else template.encode(
+            next(iter(train_dataset)))
+        if '_data' in td0:
+            vision_keys = list(td0['_data'].keys())
+        # fix glm4v-chat
+        if 'images' in td0:
+            vision_keys.append('images')
+    # tokenize dataset
+    preprocess_kwargs = {}
+    if not streaming:
+        from swift.llm.utils.dataset import dataset_enable_cache
+        preprocess_kwargs = dict(
+            num_proc=args.preprocess_num_proc,
+            load_from_cache_file=dataset_enable_cache,
+            desc='tokenizing paired dataset',
+        )
+    patch_trl(args.is_vision)
+    is_encoder_decoder = model.config.is_encoder_decoder
+    train_dataset, val_dataset = get_preprocessed_rlhf_dataset(
+        train_dataset,
+        val_dataset,
+        template=template,
+        rlhf_type=args.rlhf_type,
+        vision_keys=vision_keys,
+        max_length=args.max_length,
+        max_prompt_length=args.max_prompt_length,
+        truncation_mode=args.truncation_mode,
+        streaming=streaming,
+        is_encoder_decoder=is_encoder_decoder,
+        **preprocess_kwargs)
 
     # Trainer
     logger.info(f'training_args: {training_args}')
 
     trainer_kwargs = RLHFTrainerFactory.get_training_args(args)
 
-    if ref_model is not None:
-        trainer_kwargs['ref_model'] = ref_model
-
     trainer_kwargs['args'].generation_config = generation_config
     trainer_cls = RLHFTrainerFactory.get_trainer(args.rlhf_type)
 
     trainer_kwargs['is_vision'] = args.is_vision
-    model.config.model_type += '_'  # add suffix to avoid checks in hfDPOTrainer
-
     trainer_kwargs['streaming'] = streaming
-
+    trainer_kwargs['is_encoder_decoder'] = is_encoder_decoder
+    if vision_keys:
+        trainer_kwargs['vision_keys'] = vision_keys
     trainer = trainer_cls(
         model=model,
+        ref_model=ref_model,
         train_dataset=train_dataset,
         eval_dataset=val_dataset,
         tokenizer=tokenizer,
-        template=template,
         **trainer_kwargs)
 
     trainer.sft_args = args
