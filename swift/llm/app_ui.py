@@ -91,9 +91,9 @@ def gradio_chat_demo(args: AppUIArguments) -> None:
         clear_history.click(fn=clear_session, inputs=[], outputs=[chatbot], queue=False)
     # Compatible with InferArguments
     share = getattr(args, 'share', False)
-    host = getattr(args, 'host', '127.0.0.1')
-    port = getattr(args, 'port', 7860)
-    demo.queue().launch(height=1000, share=share, server_name=host, server_port=port)
+    server_name = getattr(args, 'server_name', '127.0.0.1')
+    server_port = getattr(args, 'server_port', 7861)
+    demo.queue().launch(height=1000, share=share, server_name=server_name, server_port=server_port)
 
 
 def llm_app_ui(args: AppUIArguments) -> None:

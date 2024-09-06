@@ -157,6 +157,7 @@ class ModelType:
     chatglm3_6b = 'chatglm3-6b'
     chatglm3_6b_32k = 'chatglm3-6b-32k'
     chatglm3_6b_128k = 'chatglm3-6b-128k'
+    characterGLM_6B = 'CharacterGLM-6B'
     codegeex2_6b = 'codegeex2-6b'
     glm4v_9b_chat = 'glm4v-9b-chat'
     glm4_9b = 'glm4-9b'
@@ -1308,7 +1309,7 @@ def get_model_tokenizer_phi3_vision(model_dir: str,
 
 @register_model(
     ModelType.baichuan2_13b_chat,
-    'baichuan-inc/Baichuan2-13B-Chat',
+    '/home/ph/LLM/Baichuan-13B-main',
     LoRATM.baichuan,
     TemplateType.baichuan,
     support_vllm=True,
@@ -1457,15 +1458,23 @@ def remove_property(tokenizer_cls: Type[PreTrainedTokenizerBase], tokenizer_conf
     hf_model_id='THUDM/chatglm3-6b-32k')
 @register_model(
     ModelType.chatglm3_6b_128k,
-    'ZhipuAI/chatglm3-6b-128k',
+    '/home/ph/LLM/ChatGLM3-main/chatglm3-6b-128k',
     LoRATM.chatglm,
     TemplateType.chatglm3,
     support_vllm=True,
     requires=['transformers<4.42'],
     hf_model_id='THUDM/chatglm3-6b-128k')
 @register_model(
+    ModelType.characterGLM_6B,
+    '/home/ph/LLM2/CharacterGLM-6B-main/CharacterGLM-6B',
+    LoRATM.chatglm,
+    TemplateType.chatglm2,
+    support_vllm=True,
+    hf_model_id='THUCoAI/CharacterGLM-6B')
+
+@register_model(
     ModelType.chatglm3_6b,
-    'ZhipuAI/chatglm3-6b',
+    '/home/ph/LLM/ChatGLM3-main/chatglm3-6b',
     LoRATM.chatglm,
     TemplateType.chatglm3,
     support_vllm=True,
@@ -1489,7 +1498,7 @@ def remove_property(tokenizer_cls: Type[PreTrainedTokenizerBase], tokenizer_conf
     hf_model_id='THUDM/chatglm2-6b-32k')
 @register_model(
     ModelType.chatglm2_6b,
-    'ZhipuAI/chatglm2-6b',
+    '/home/ph/LLM/ChatGLM2-6B-main/chatglm-6b',
     LoRATM.chatglm,
     TemplateType.chatglm2,
     support_vllm=True,
@@ -2115,6 +2124,8 @@ def get_model_tokenizer_glm4v(model_dir: str,
     hf_model_id='OpenBuddy/openbuddy-deepseek-67b-v15.2')
 @register_model(
     ModelType.deepseek_67b_chat,
+    '/home/ph/LLM/DeepSeek-LLM-main/deepseek-llm-67b-chat',
+    LoRATM.llama2,
     'deepseek-ai/deepseek-llm-67b-chat',
     LoRATM.llama,
     TemplateType.deepseek,
@@ -2133,6 +2144,8 @@ def get_model_tokenizer_glm4v(model_dir: str,
     hf_model_id='deepseek-ai/deepseek-llm-67b-base')
 @register_model(
     ModelType.deepseek_7b_chat,
+    '/home/ph/LLM/DeepSeek-LLM-main/deepseek-llm-7b-chat',
+    LoRATM.llama2,
     'deepseek-ai/deepseek-llm-7b-chat',
     LoRATM.llama,
     TemplateType.deepseek,
@@ -5069,7 +5082,7 @@ def get_model_tokenizer_qwen_base(*args, **kwargs):
     hf_model_id='jxy/Tongyi-Finance-14B-Chat')
 @register_model(
     ModelType.qwen_14b_chat,
-    'qwen/Qwen-14B-Chat',
+    '/home/ph/LLM/Qwen-14B-main/Qwen-14B-Chat',
     LoRATM.qwen,
     TemplateType.qwen,
     support_flash_attn=True,

@@ -7,6 +7,7 @@ __pycache__/
 test.py
 # C extensions
 *.so
+<<<<<<< HEAD
 
 *.jsonl
 *.json
@@ -14,6 +15,9 @@ test.py
 *.bin
 ./datasets
 
+=======
+datasets/
+>>>>>>> 0504454787c2e9cdff5831f3f7d78e6362ab4229
 # Distribution / packaging
 .Python
 build/
